@@ -1,0 +1,1 @@
+window.SAMILA_API = 'https://script.google.com/macros/s/AKfycbxYwO2R4ScgSq0_l0RXTSZW4TA8VUfVvSULna1FrfMLM8NLnhxa4FCh3VikLoDwDWohVA/exec';
