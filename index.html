@@ -85,6 +85,21 @@ textarea.t{min-height:72px;resize:vertical}
 .row{display:flex;justify-content:space-between;gap:12px;padding:3px 0}
 .row.total{font-weight:700;font-size:18px;border-top:1px solid var(--line);margin-top:6px;padding-top:10px}
 .row .disc{color:var(--leaf-2)}
+.promos{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;margin:14px -2px 0;padding:2px;-webkit-overflow-scrolling:touch}
+.promo{flex:0 0 86%;scroll-snap-align:start;border-radius:var(--r);padding:12px 14px;background:linear-gradient(135deg,#2f5d34,#4e7d3a);color:#fff}
+.promos.one .promo{flex-basis:100%}
+.promo b{display:block;font-size:16px;line-height:1.3}
+.promo span{display:block;margin-top:3px;font-size:13.5px;opacity:.92}
+.promo i{display:inline-block;margin-top:6px;font-style:normal;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;background:rgba(255,255,255,.2)}
+.vbanner{display:flex;align-items:center;gap:10px;justify-content:space-between;background:var(--warn-bg);color:var(--warn);border-radius:var(--r);padding:10px 14px;margin-top:12px;font-weight:600;font-size:15px}
+.vbanner button{border:0;background:transparent;color:var(--warn);font-weight:700;padding:6px}
+.barhint{font-size:12.5px;color:var(--leaf-2);font-weight:600;margin-top:2px}
+.perk{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.perk b{font-size:20px;color:var(--leaf)}
+.vlist{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.vlist button{display:flex;justify-content:space-between;align-items:center;gap:10px;border:1px dashed var(--leaf-2);background:#f8fbf4;border-radius:12px;padding:12px 14px;text-align:left;font-weight:600;font-size:15px}
+.vlist button small{display:block;font-weight:400;color:var(--mute);font-size:13px}
+.vlist button.used{opacity:.55}
 .back{border:0;background:transparent;color:var(--leaf);font-weight:600;padding:16px 0 4px;font-size:15px}
 .code{font-family:Lora,Georgia,serif;font-size:30px;font-weight:700;letter-spacing:.04em;color:var(--leaf)}
 .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:14px;font-weight:600;background:var(--sprout);color:var(--leaf)}
@@ -180,6 +195,10 @@ const API = (window.SAMILA_API || '').trim();
 const DEMO = !API;
 const CID = store.get('samila.cid', null) || (() => { const id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)); store.set('samila.cid', id); return id; })();
 const ERR = {
+  NEED_MEMBER: 'Bạn cần đăng ký thành viên (và dùng đúng máy đã đăng ký) mới dùng được voucher và lá.',
+  VOUCHER_NONE: 'Không tìm thấy voucher này trong tài khoản của bạn.', VOUCHER_USED: 'Voucher này đang dùng cho một đơn khác.',
+  VOUCHER_EXPIRED: 'Voucher đã hết hạn.', VOUCHER_MIN: 'Đơn chưa đủ điều kiện để dùng voucher này.',
+  LA_MIN: 'Đơn hoặc số lá của bạn chưa đủ một mốc để dùng lá.', LA_CHANGED: 'Số lá của bạn vừa thay đổi. Bạn kiểm tra lại giúp Tiệm.',
   BAD_PHONE: 'Số điện thoại chưa đúng (10 số, bắt đầu bằng 0).',
   NEED_APT: 'Bạn nhập số căn hộ giúp Tiệm.', NEED_ADDR: 'Bạn nhập địa chỉ giao hàng giúp Tiệm.', NEED_NAME: 'Bạn nhập tên giúp Tiệm.',
   BAD_TIME: 'Giờ giao này không còn hợp lệ, bạn chọn lại giúp Tiệm.', PAUSED: 'Tiệm đang tạm ngưng nhận đơn.',
@@ -296,7 +315,7 @@ const S = {
   menu: null, skew: 0, cart: store.get('samila.cart', {}), tab: 'menu', view: 'menu',
   profile: store.get('samila.profile', {}), member: store.get('samila.member', null),
   orders: store.get('samila.orders', []),            // [{code, token, at}] đơn đặt từ máy này
-  co: { area: null, asap: true, day: 0, slot: null, pay: null }, busy: false, order: null, tick: null, poll: null, adding: null, cartKeep: null
+  co: { area: null, asap: true, day: 0, slot: null, pay: null, voucher: '', useLa: false }, me: null, quote: null, aq: null, busy: false, order: null, tick: null, poll: null, adding: null, cartKeep: null
 };
 function saveCart() { if (!S.adding) store.set('samila.cart', S.cart); }
 // Giỏ để tính giá: món đã có trong đơn đang thêm + món mới chọn.
@@ -320,7 +339,8 @@ async function submitAdd() {
   const a = S.adding, c = calc(S.menu.products, S.menu.tiers, effCart());
   $('barBtn').disabled = true; $('barBtn').textContent = 'Đang gửi…';
   const r = await call({ action: 'add', hp: '', code: a.code, token: a.token,
-    items: Object.keys(S.cart).map(n => ({ name: n, qty: S.cart[n] })), clientTotal: c.total + (a.o.ship || 0) });
+    items: Object.keys(S.cart).map(n => ({ name: n, qty: S.cart[n] })),
+    clientTotal: S.aq && S.aq.key === JSON.stringify([a.code, S.cart]) && S.aq.q ? S.aq.q.total : undefined });
   if (!r.ok) {
     if (r.order && r.error === 'LOCKED') { const t = a.token; stopAdd(); openOrder(r.order, t, false); renderOrder({ ok: false, text: errText(r) }); return; }
     if (['GONE', 'PRICE_CHANGED'].includes(r.error)) await loadMenu();
@@ -329,6 +349,83 @@ async function submitAdd() {
   const t = a.token; stopAdd();
   openOrder(r.order, t, false);
   renderOrder({ ok: true, text: 'Đã thêm món vào đơn. Tiệm sẽ xác nhận lại đơn của bạn.' });
+}
+
+
+/* ================= Ưu đãi: khuyến mãi, voucher, lá ================= */
+const phone10 = () => { const p = String((S.profile && S.profile.phone) || '').replace(/[^\d+]/g, '').replace(/^\+84/, '0'); return /^0\d{9}$/.test(p) ? p : ''; };
+const mtokenFor = ph => (ph && S.member && S.member.token && S.member.phone === ph ? S.member.token : '');
+const needQuote = () => !!(S.menu && ((S.menu.promos || []).length || S.member));
+const ceilLa = n => Number(n || 0).toLocaleString('vi-VN');
+function laMsg(la, step) {
+  step = step || 5000; la = Number(la) || 0;
+  const use = Math.floor(la / step) * step, next = use + step, need = next - la;
+  return 'Bạn đang có ' + ceilLa(la) + ' lá, ' + (use > 0 ? 'sử dụng ngay hoặc ' : '') + 'tích thêm ' + ceilLa(need) + ' lá để được giảm ' + ceilLa(next) + 'đ.';
+}
+async function loadMe(force) {
+  if (!S.member || !S.member.token) { S.me = null; return null; }
+  if (!force && S.me && Date.now() - S.me.at < 30000) return S.me;
+  const r = await call({ action: 'me', phone: S.member.phone, token: S.member.token });
+  if (r.ok) S.me = Object.assign({ at: Date.now() }, r);
+  else if (r.error === 'NOT_FOUND') S.me = null;
+  return S.me;
+}
+const quoteKey = () => JSON.stringify([S.cart, S.co.area, phone10(), mtokenFor(phone10()) ? 1 : 0, S.co.voucher, S.co.useLa]);
+let qSeq = 0;
+async function refreshQuote() {
+  if (!needQuote() || !Object.keys(S.cart).length) return;
+  const key = quoteKey();
+  if (S.quote && S.quote.key === key) return;
+  const seq = ++qSeq, ph = phone10();
+  const r = await call({ action: 'quote', cid: CID, items: Object.keys(S.cart).map(n => ({ name: n, qty: S.cart[n] })), area: S.co.area || '', phone: ph, mtoken: mtokenFor(ph), voucher: S.co.voucher, useLa: S.co.useLa });
+  if (seq !== qSeq) return;
+  S.quote = { key, q: r.ok ? r.quote : null };
+  S.qnote = '';
+  if (r.ok && r.quote.vErr) { S.co.voucher = ''; S.qnote = errText({ error: r.quote.vErr }); }
+  if (r.ok && r.quote.laErr) { S.co.useLa = false; S.qnote = errText({ error: r.quote.laErr }); }
+  if (S.view === 'checkout') { if (S.keep) S.keep(); renderCheckout(); }
+}
+// Tính thử khi thêm món vào đơn đang có (có cả khuyến mãi, voucher, lá của đơn đó).
+let aSeq = 0;
+async function refreshAddQuote() {
+  const a = S.adding;
+  if (!a || !Object.keys(S.cart).length) return;
+  const key = JSON.stringify([a.code, S.cart]);
+  if (S.aq && S.aq.key === key) return;
+  const seq = ++aSeq;
+  const r = await call({ action: 'quote', cid: CID, code: a.code, token: a.token, items: Object.keys(S.cart).map(n => ({ name: n, qty: S.cart[n] })) });
+  if (seq !== aSeq || !S.adding) return;
+  S.aq = { key, q: r.ok ? r.quote : null };
+  renderBar();
+}
+function barHint(c) {
+  const ps = (S.menu.promos || []).filter(p => p.kind !== 'voucher' && (p.aud === 'all' || (p.aud === 'member' && S.member)));
+  let met = null, unmet = null;
+  for (const p of ps) {
+    const nq = (p.minQty || 0) - c.count, nm = (p.minMoney || 0) - c.gross;
+    if (nq <= 0 && nm <= 0) met = met || p;
+    else if (!unmet) unmet = { p, nq, nm };
+  }
+  if (met) return 'Đã được: ' + met.name;
+  if (unmet) return unmet.nq > 0 ? 'Thêm ' + unmet.nq + ' chai nữa để được ' + unmet.p.name : 'Thêm ' + money(unmet.nm) + ' nữa để được ' + unmet.p.name;
+  return '';
+}
+function promoStrip() {
+  const ps = (S.menu.promos || []).filter(p => p.aud === 'all' || p.aud === 'member' || p.aud === 'new');
+  if (!ps.length || S.adding) return null;
+  return h('div', { class: 'promos' + (ps.length === 1 ? ' one' : ''), role: 'list', 'aria-label': 'Khuyến mãi đang chạy' }, ps.map(p => h('div', { class: 'promo', role: 'listitem' },
+    h('b', {}, p.name), h('span', {}, p.text), p.aud === 'member' ? h('i', {}, 'Dành cho thành viên') : p.aud === 'new' ? h('i', {}, 'Dành cho khách mới') : null)));
+}
+function voucherBanner() {
+  if (!S.co.voucher || S.adding) return null;
+  const v = S.me && (S.me.vouchers || []).find(x => x.id === S.co.voucher);
+  return h('div', { class: 'vbanner' }, h('span', {}, 'Đã chọn voucher: ' + (v ? v.name + ' · ' + v.text : '')), h('button', { type: 'button', onclick: () => { S.co.voucher = ''; S.quote = null; renderMenu(); } }, 'Bỏ'));
+}
+// Số liệu hiển thị ở màn xác nhận: ưu tiên kết quả máy chủ, chưa có thì tạm tính theo bảng giá.
+function totalsFor(c, ship) {
+  const qd = needQuote() && S.quote && S.quote.key === quoteKey() ? S.quote.q : null;
+  if (qd) return Object.assign({ server: true }, qd);
+  return { server: false, lines: c.lines, gross: c.gross, tierDisc: c.discount, progDisc: 0, vDisc: 0, la: 0, ship, total: c.total + ship, applied: [], voucher: null };
 }
 
 function show(view) {
@@ -396,6 +493,9 @@ function renderMenu() {
     h('p', { class: 'small', style: 'margin:4px 0 8px' }, 'Món chọn thêm sẽ gộp vào đơn này. Đơn quay lại chờ Tiệm xác nhận.'),
     S.adding.err ? h('div', { class: 'msg bad', role: 'alert' }, S.adding.err) : null,
     h('button', { class: 'btn ghost', type: 'button', onclick: () => { const o = S.adding.o, t = S.adding.token; stopAdd(); openOrder(o, t, false); } }, 'Không thêm nữa')));
+  const strip = promoStrip(), vb = voucherBanner();
+  if (strip) root.append(strip);
+  if (vb) root.append(vb);
   root.append(h('h2', {}, 'Thực đơn'));
   for (const g of groups.values()) {
     const card = h('article', { class: 'card flavor' }, h('h3', {}, g.flavor), g.pack ? h('div', { class: 'sub' }, 'Đóng ' + g.pack) : null);
@@ -437,17 +537,44 @@ function renderBar() {
   const c = calc(S.menu.products, S.menu.tiers, effCart());
   const added = Object.values(S.cart).reduce((s, n) => s + n, 0);
   if (S.adding) {
-    setKids($('barSum'), h('div', { class: 'small' }, '+' + added + ' chai · tổng đơn'), h('b', {}, money(c.total + (S.adding.o.ship || 0))));
+    refreshAddQuote();
+    const aq = S.aq && S.aq.key === JSON.stringify([S.adding.code, S.cart]) ? S.aq.q : null;
+    setKids($('barSum'), h('div', { class: 'small' }, '+' + added + ' chai · tổng đơn'), h('b', {}, aq ? money(aq.total) : money(c.total + (S.adding.o.ship || 0))));
     $('barBtn').textContent = 'Thêm vào đơn'; $('barBtn').disabled = S.menu.paused;
     return;
   }
-  setKids($('barSum'), h('div', { class: 'small' }, c.count + ' chai'), h('b', {}, money(c.total)), c.discount ? h('s', {}, money(c.gross)) : '');
+  const hint = barHint(c);
+  setKids($('barSum'), h('div', { class: 'small' }, c.count + ' chai'), h('b', {}, money(c.total)), c.discount ? h('s', {}, money(c.gross)) : '', hint ? h('div', { class: 'barhint' }, hint) : '');
   $('barBtn').textContent = 'Đặt hàng';
   $('barBtn').disabled = S.menu.paused;
 }
-$('barBtn').addEventListener('click', () => { if (S.adding) { submitAdd(); return; } renderCheckout(); show('checkout'); });
+$('barBtn').addEventListener('click', () => {
+  if (S.adding) { submitAdd(); return; }
+  S.quote = null; renderCheckout(); show('checkout');
+  loadMe().then(() => { if (S.view === 'checkout') { if (S.keep) S.keep(); renderCheckout(); } });
+});
 
 /* ================= Thanh toán ================= */
+function perksBlock() {
+  const me = S.me, here = S.member && phone10() === S.member.phone && me;
+  const rerun = () => { if (S.keep) S.keep(); renderCheckout(); };
+  if (here && ((me.vouchers || []).length || me.la > 0)) {
+    return h('div', { class: 'card' }, h('h3', {}, 'Ưu đãi của bạn'),
+      (me.vouchers || []).length ? [h('div', { class: 'f' }, 'Voucher'),
+        h('div', { class: 'choices' }, me.vouchers.map(v => h('button', { type: 'button', disabled: !!v.lock, 'aria-pressed': String(S.co.voucher === v.id), onclick: () => { S.co.voucher = S.co.voucher === v.id ? '' : v.id; rerun(); } },
+          v.name, h('small', {}, v.text + (v.exp ? ' · HSD ' + v.exp : '') + (v.lock ? ' · đang dùng cho đơn ' + v.lock : '')))))] : null,
+      me.la > 0 ? [h('div', { class: 'f' }, 'Lá'),
+        me.la >= me.laStep
+          ? h('div', { class: 'choices' }, h('button', { type: 'button', 'aria-pressed': String(S.co.useLa), onclick: () => { S.co.useLa = !S.co.useLa; rerun(); } }, 'Dùng lá để trừ tiền hàng', h('small', {}, laMsg(me.la, me.laStep) + ' Lá trừ theo mốc ' + ceilLa(me.laStep) + ', phần còn lại bạn trả thêm tiền. Dùng được cùng voucher.')))
+          : h('p', { class: 'small', style: 'margin:4px 0 0' }, laMsg(me.la, me.laStep))] : null);
+  }
+  if (!S.member && S.menu.la && S.menu.la.rate > 0) {
+    return h('div', { class: 'card zalo' }, h('h3', {}, 'Thành viên được hoàn ' + S.menu.la.rate + '% bằng lá'),
+      h('p', { class: 'small', style: 'margin:4px 0 10px' }, 'Đăng ký thành viên để tích lá mỗi đơn và nhận voucher.'),
+      h('button', { class: 'btn ghost', type: 'button', onclick: () => { if (S.keep) S.keep(); renderMember(); show('member'); } }, 'Đăng ký thành viên'));
+  }
+  return null;
+}
 function renderCheckout(error) {
   const m = S.menu, root = $('v-checkout'), co = S.co, pf = S.profile;
   const c = calc(m.products, m.tiers, S.cart);
@@ -457,22 +584,29 @@ function renderCheckout(error) {
   const days = slotDays();
   if (!co.asap && (!days[co.day] || !days[co.day].slots.includes(co.slot))) { co.day = 0; co.slot = days[0] ? days[0].slots[0] : null; }
   const first = earliest(now());
+  const T = totalsFor(c, ship), pend = needQuote() && !T.server;
   const f = {};
   const input = (key, attrs) => (f[key] = h(attrs.tag || 'input', Object.assign({ class: 't', id: 'f-' + key }, attrs, { tag: null })));
   setKids(root, 
     h('button', { class: 'back', type: 'button', onclick: () => { renderMenu(); show('menu'); } }, '‹ Sửa món'),
     h('h2', { style: 'margin-top:4px' }, 'Xác nhận đơn'),
     error ? h('div', { class: 'msg bad', role: 'alert' }, error) : null,
+    S.qnote ? h('div', { class: 'msg bad', role: 'alert' }, S.qnote) : null,
     h('div', { class: 'card' },
-      h('ul', { class: 'lines' }, c.lines.map(l => h('li', {}, h('span', {}, l.qty + ' × ' + shortName(l.name)), h('span', {}, money(l.price * l.qty))))),
-      h('div', { class: 'row' }, h('span', {}, 'Tạm tính'), h('span', {}, money(c.gross))),
-      c.discount ? h('div', { class: 'row' }, h('span', {}, 'Giảm giá theo số chai'), h('span', { class: 'disc' }, '−' + money(c.discount))) : null,
-      h('div', { class: 'row' }, h('span', {}, 'Phí giao hàng'), h('span', {}, co.area ? (ship ? money(ship) : 'Miễn phí') : 'Chọn nơi giao')),
-      h('div', { class: 'row total' }, h('span', {}, 'Tổng'), h('span', {}, money(c.total + ship)))),
+      h('ul', { class: 'lines' }, T.lines.map(l => h('li', {}, h('span', {}, (l.gift ? '🎁 ' : '') + l.qty + ' × ' + shortName(l.name)), h('span', {}, l.gift ? 'Tặng' : money(l.price * l.qty))))),
+      h('div', { class: 'row' }, h('span', {}, 'Tạm tính'), h('span', {}, money(T.gross))),
+      T.tierDisc ? h('div', { class: 'row' }, h('span', {}, 'Giảm giá theo số chai'), h('span', { class: 'disc' }, '−' + money(T.tierDisc))) : null,
+      (T.applied || []).filter(a => !a.gift && a.save).map(a => h('div', { class: 'row' }, h('span', {}, a.name), h('span', { class: 'disc' }, '−' + money(a.save)))),
+      T.voucher ? h('div', { class: 'row' }, h('span', {}, 'Voucher ' + T.voucher.name), h('span', { class: 'disc' }, '−' + money(T.voucher.save))) : null,
+      T.la ? h('div', { class: 'row' }, h('span', {}, 'Dùng lá'), h('span', { class: 'disc' }, '−' + money(T.la))) : null,
+      h('div', { class: 'row' }, h('span', {}, 'Phí giao hàng'), h('span', {}, co.area ? (T.ship ? money(T.ship) : 'Miễn phí') : 'Chọn nơi giao')),
+      h('div', { class: 'row total' }, h('span', {}, 'Tổng'), h('span', {}, money(T.total))),
+      pend ? h('p', { class: 'small', style: 'margin:6px 0 0' }, 'Đang tính ưu đãi…') : null),
+    perksBlock(),
     h('div', { class: 'card' },
       h('h3', {}, 'Giao tới'),
       h('label', { class: 'f', for: 'f-phone' }, 'Số điện thoại'),
-      input('phone', { type: 'tel', inputmode: 'tel', autocomplete: 'tel', placeholder: '09xx xxx xxx', value: pf.phone || '' }),
+      input('phone', { type: 'tel', inputmode: 'tel', autocomplete: 'tel', placeholder: '09xx xxx xxx', value: pf.phone || '', onchange: () => { keep(); renderCheckout(); } }),
       h('label', { class: 'f', for: 'f-name' }, 'Tên ', h('span', { class: 'opt' }, '(không bắt buộc)')),
       input('name', { autocomplete: 'name', maxlength: 50, value: pf.name || '' }),
       h('div', { class: 'f' }, 'Nơi giao'),
@@ -502,7 +636,7 @@ function renderCheckout(error) {
       input('note', { tag: 'textarea', maxlength: 300, placeholder: 'Ví dụ: để ở sảnh, gọi trước khi giao' }),
       h('div', { class: 'hp', 'aria-hidden': 'true' }, (f.hp = h('input', { tabindex: '-1', autocomplete: 'off', name: 'website' })))),
     h('div', { id: 'coErr', class: 'err', role: 'alert' }),
-    h('button', { class: 'btn block', id: 'placeBtn', type: 'button', disabled: S.busy, onclick: () => place(f, c, ship) }, S.busy ? 'Đang gửi đơn…' : 'Đặt đơn · ' + money(c.total + ship))
+    h('button', { class: 'btn block', id: 'placeBtn', type: 'button', disabled: S.busy || pend, onclick: () => place(f, c, ship) }, S.busy ? 'Đang gửi đơn…' : 'Đặt đơn · ' + money(T.total))
   );
   if (f.addr) f.addr.value = pf.addr || '';
   if (f.note) f.note.value = co.note || '';
@@ -512,6 +646,7 @@ function renderCheckout(error) {
     if (f.note) co.note = f.note.value;
   }
   S.keep = keep;
+  if (needQuote()) refreshQuote();
 }
 
 async function place(f, c, ship) {
@@ -527,22 +662,26 @@ async function place(f, c, ship) {
   else if (!co.asap && !co.slot) msg = 'Bạn chọn giờ giao giúp Tiệm.';
   else if (!co.pay) msg = 'Bạn chọn cách thanh toán giúp Tiệm.';
   if (msg) { err.textContent = msg; err.scrollIntoView({ block: 'center' }); return; }
+  const T = totalsFor(c, ship);
+  if (needQuote() && !T.server) return;
   pf.area = co.area; store.set('samila.profile', pf);
   S.busy = true; $('placeBtn').disabled = true; $('placeBtn').textContent = 'Đang gửi đơn…';
   const r = await call({
     action: 'order', cid: CID, hp: f.hp.value, phone, name: pf.name || '', area: co.area, apt: pf.apt || '', addr: pf.addr || '',
     when: co.asap ? null : co.slot, pay: co.pay, note: co.note || '',
-    items: c.lines.map(l => ({ name: l.name, qty: l.qty })), clientTotal: c.total + ship
+    items: c.lines.map(l => ({ name: l.name, qty: l.qty })), clientTotal: T.total,
+    mtoken: mtokenFor(phone), voucher: mtokenFor(phone) ? S.co.voucher : '', useLa: mtokenFor(phone) ? S.co.useLa : false
   });
   S.busy = false;
   if (!r.ok) {
     if (['GONE', 'PRICE_CHANGED', 'BAD_TIME'].includes(r.error)) await loadMenu();
+    if (['PRICE_CHANGED', 'LA_CHANGED', 'VOUCHER_USED', 'VOUCHER_EXPIRED', 'VOUCHER_NONE'].includes(r.error)) { S.quote = null; S.me = null; S.co.voucher = ''; loadMe(true).then(() => { if (S.view === 'checkout') { if (S.keep) S.keep(); renderCheckout(); } }); }
     renderCheckout(errText(r));
     return;
   }
   S.orders = [{ code: r.order.code, token: r.token, at: r.order.at }].concat(S.orders.filter(o => o.code !== r.order.code)).slice(0, 30);
   store.set('samila.orders', S.orders);
-  S.cart = {}; saveCart(); S.co.note = '';
+  S.cart = {}; saveCart(); S.co.note = ''; S.co.voucher = ''; S.co.useLa = false; S.me = null; S.quote = null;
   openOrder(r.order, r.token, true);
 }
 
@@ -606,10 +745,13 @@ function renderOrder(note) {
         h('dt', {}, 'Người nhận'), h('dd', {}, (o.name ? o.name + ' · ' : '') + o.phone),
         h('dt', {}, 'Thanh toán'), h('dd', {}, (o.pay === 'bank' ? 'Chuyển khoản' : 'Tiền mặt') + ' · ' + o.money),
         o.note ? [h('dt', {}, 'Ghi chú'), h('dd', {}, o.note)] : null),
-      h('ul', { class: 'lines', style: 'margin-top:10px;border-top:1px solid var(--line);padding-top:6px' }, o.lines.map(l => h('li', {}, h('span', {}, l.qty + ' × ' + shortName(l.name)), h('span', {}, money(l.amount))))),
+      h('ul', { class: 'lines', style: 'margin-top:10px;border-top:1px solid var(--line);padding-top:6px' }, o.lines.map(l => h('li', {}, h('span', {}, (l.gift ? '🎁 ' : '') + l.qty + ' × ' + shortName(l.name)), h('span', {}, l.gift ? 'Tặng' : money(l.price ? l.price * l.qty : l.amount))))),
       o.discount ? h('div', { class: 'row' }, h('span', {}, 'Đã giảm'), h('span', { class: 'disc' }, '−' + money(o.discount))) : null,
+      (o.applied && o.applied.length) || o.voucher ? h('p', { class: 'small', style: 'margin:2px 0 4px' }, 'Áp dụng: ' + (o.applied || []).map(a => a.name).concat(o.voucher ? ['Voucher ' + o.voucher.name] : []).join(', ')) : null,
+      o.la ? h('div', { class: 'row' }, h('span', {}, 'Đã dùng lá'), h('span', { class: 'disc' }, '−' + money(o.la))) : null,
       o.ship ? h('div', { class: 'row' }, h('span', {}, 'Phí giao hàng'), h('span', {}, money(o.ship))) : null,
       h('div', { class: 'row total' }, h('span', {}, 'Tổng'), h('span', {}, money(o.total)))),
+    o.laEarn ? h('div', { class: 'msg ok', role: 'status' }, 'Bạn đã nhận ' + ceilLa(o.laEarn) + ' lá từ đơn này. Xem ở mục Thành viên.') : null,
     o.status === 'Đã giao' ? [rateCard(o), reportCard(o)] : null,
     h('button', { class: 'btn ghost block', type: 'button', onclick: () => { renderMenu(); show('menu'); } }, 'Đặt thêm đơn khác')
   );
@@ -781,7 +923,7 @@ async function renderMember(note) {
   if (note) root.append(h('div', { class: 'msg ' + (note.ok ? 'ok' : 'bad'), role: 'alert' }, note.text));
   if (mb && mb.token) {
     const r = await call({ action: 'me', phone: mb.phone, token: mb.token });
-    if (r.ok) return memberCard(root, r);
+    if (r.ok) { S.me = Object.assign({ at: Date.now() }, r); return memberCard(root, r); }
     if (r.error === 'NOT_FOUND') { S.member = null; store.set('samila.member', null); }
   }
   joinForm(root);
@@ -796,6 +938,7 @@ function memberCard(root, r) {
     h('dl', { class: 'kv' }, h('dt', {}, 'SĐT'), h('dd', {}, m.phone), h('dt', {}, 'Giao tới'), h('dd', {}, m.area === 'out' ? m.place : (S.menu ? S.menu.building : 'Chung cư') + ', căn ' + m.place)),
     h('p', { class: 'small', style: 'margin:10px 0 0' }, 'Thông tin này tự điền khi bạn đặt hàng.'),
     h('button', { class: 'back', type: 'button', onclick: () => { S.member = null; store.set('samila.member', null); joinForm(setKids(root, h('h2', {}, 'Sửa thông tin')) || root, m); } }, 'Sửa thông tin')));
+  root.append(perksCard(r));
   if (r.orders.length) {
     root.append(h('h2', {}, 'Đơn gần đây'), h('div', { class: 'olist' }, r.orders.map(o => h('button', { type: 'button', onclick: async () => {
       const v = await call({ action: 'view', code: o.code, token: o.token }); if (v.ok) openOrder(v.order, o.token, false);
@@ -803,6 +946,19 @@ function memberCard(root, r) {
       h('div', { class: 'it' }, o.items), h('div', { class: 'top', style: 'margin-top:6px' }, h('span', { class: 'small' }, new Date(o.at).toLocaleDateString('vi-VN')), h('b', {}, money(o.total)))))));
   }
   root.append(homeGuide());
+}
+function perksCard(r) {
+  const vs = r.vouchers || [];
+  return h('div', { class: 'card' },
+    h('div', { class: 'perk' }, h('div', {}, h('div', { class: 'small' }, 'Lá của bạn'), h('b', {}, ceilLa(r.la) + ' lá')), h('div', { class: 'small', style: 'text-align:right' }, 'Hoàn ' + (r.laRate || 0) + '% mỗi đơn')),
+    h('p', { class: 'small', style: 'margin:8px 0 0' }, laMsg(r.la, r.laStep) + ' Lá trừ theo mốc ' + ceilLa(r.laStep) + ' (1 lá = 1đ), phần còn lại bạn trả thêm tiền. Lá cộng vào sau khi đơn đã nhận đủ tiền, tính trên số tiền hàng bạn thật sự trả.'),
+    vs.length ? [h('h3', { style: 'margin-top:14px' }, 'Voucher của bạn'),
+      h('div', { class: 'vlist' }, vs.map(v => h('button', { type: 'button', class: v.lock ? 'used' : '', disabled: !!v.lock, onclick: () => useVoucher(v) },
+        h('span', {}, v.name, h('small', {}, v.text + (v.exp ? ' · HSD ' + v.exp : '') + (v.lock ? ' · đang dùng cho đơn ' + v.lock : ''))), v.lock ? '' : 'Dùng ngay')))] : null);
+}
+function useVoucher(v) {
+  S.co.voucher = v.id; S.quote = null;
+  if (Object.keys(S.cart).length) { renderCheckout(); show('checkout'); } else { renderMenu(); show('menu'); }
 }
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); window.__bip = e; });
 function homeGuide() {
@@ -852,14 +1008,25 @@ function joinForm(root, prev) {
     f.btn.disabled = true; f.btn.textContent = 'Đang gửi…';
     const r = await call({ action: 'join', cid: CID, hp: f.hp.value, phone, name: f.name.value.trim(), area, apt: area === 'cc' ? f.place.value : '', addr: area === 'out' ? f.place.value : '' });
     if (!r.ok) { f.btn.disabled = false; f.btn.textContent = 'Đăng ký'; f.err.textContent = errText(r); return; }
-    S.member = { phone, token: r.token }; store.set('samila.member', S.member);
-    renderMember();
+    S.member = { phone, token: r.token }; store.set('samila.member', S.member); S.me = null;
+    renderMember(r.granted && r.granted.length ? { ok: true, text: 'Chào mừng bạn! Bạn vừa nhận voucher: ' + r.granted.join(', ') + '. Bấm vào voucher bên dưới để dùng ngay.' } : undefined);
   }
 }
 
 /* ================= Chế độ xem thử ================= */
 const Demo = {
-  db: { orders: {}, member: null, fb: {} },
+  db: { orders: {}, member: null, fb: {}, la: 20000, vouchers: [], giftId: 0 },
+  quote(b) {
+    const m = this.menu(), cart = Object.fromEntries(b.items.map(i => [i.name, i.qty])), c = calc(m.products, m.tiers, cart), mem = !!this.db.member && !!b.mtoken;
+    const gift = { name: 'Sâm mía lau bịch / chai / 330ml', qty: 1, price: 19000, discount: 19000, amount: 0, gift: true };
+    const applied = [{ id: 'KM01', name: 'Mua từ 1 chai tặng 1 chai 330ml', save: 19000, gift: true }];
+    let goods = c.total, prog = 0;
+    if (mem && c.count >= 3) { prog = Math.round(goods * 0.1); goods -= prog; applied.push({ id: 'KM03', name: 'Thành viên giảm 10%', save: prog }); }
+    const v = mem && b.voucher ? this.db.vouchers.find(x => x.id === b.voucher) : null, vsave = v ? Math.min(5000, goods) : 0;
+    goods -= vsave;
+    const la = mem && b.useLa ? Math.min(this.db.la, goods) : 0;
+    return { lines: c.lines.concat([gift]), gross: c.gross, discount: c.discount + prog + vsave, tierDisc: c.discount, progDisc: prog, vDisc: vsave, goodsNet: goods, la, laMax: this.db.la, ship: 0, total: goods - la, applied, voucher: v ? { id: v.id, name: v.name, save: vsave } : null, vErr: '', laErr: '' };
+  },
   menu() {
     return { ok: true, now: Date.now(), shop: 'Sâmila',
       products: [{ name: 'Sâm hoa cúc / chai / 330ml', price: 19000 }, { name: 'Sâm hoa cúc / chai / 500ml', price: 28000 },
@@ -869,6 +1036,9 @@ const Demo = {
       ship: { cc: 0, out: 0 }, paused: false, notice: '', zalo: 'https://zalo.me/3712879380799354133',
       fb: { good: ['Vị ngon', 'Đúng giờ', 'Đóng gói đẹp', 'Giá hợp lý', 'Giao thân thiện'], bad: ['Vị chưa hợp', 'Giao trễ', 'Đóng gói chưa tốt', 'Giá hơi cao', 'Món không đúng ý'],
         kinds: ['Thiếu hàng', 'Sai món', 'Chai hỏng / rò', 'Vị lạ, nghi hỏng', 'Giao trễ', 'Khác'], wants: ['Đổi món', 'Hoàn tiền', 'Chỉ báo để Tiệm biết'], reportDays: 3 },
+      promos: [{ id: 'KM01', name: 'Mua từ 1 chai tặng 1 chai 330ml', aud: 'all', kind: 'gift', minQty: 1, minMoney: 0, text: 'Tặng 1 Sâm mía lau 330ml khi mua từ 1 chai (đến 30/11)' },
+        { id: 'KM03', name: 'Thành viên giảm 10%', aud: 'member', kind: 'disc', minQty: 3, minMoney: 0, text: 'Giảm 10% khi mua từ 3 chai' }],
+      la: { rate: 5, step: 5000 },
       rating: { count: 23, avg: 4.8, recent: [{ stars: 5, note: 'Uống mát, vị thanh, giao nhanh' }, { stars: 5, note: 'Sâm mía lau rất thơm' }] } };
   },
   // Xem thử: thêm ?xem=giao vào địa chỉ để đơn đặt thử hiện sẵn trạng thái Đã giao (thử đánh giá, báo lỗi).
@@ -883,15 +1053,18 @@ const Demo = {
   handle(b) {
     const db = this.db, m = this.menu();
     if (b.action === 'menu') return m;
+    if (b.action === 'quote') return { ok: true, quote: this.quote(b) };
     if (b.action === 'order') {
-      const c = calc(m.products, m.tiers, Object.fromEntries(b.items.map(i => [i.name, i.qty])));
+      const c = calc(m.products, m.tiers, Object.fromEntries(b.items.map(i => [i.name, i.qty]))), Q = this.quote(b);
       const code = 'SML' + String(Math.floor(10000 + Math.random() * 89999)), t = Date.now();
       const o = { code, at: t, status: new URLSearchParams(location.search).get('xem') === 'giao' ? 'Đã giao' : 'Mới', phone: b.phone, name: b.name, area: b.area === 'cc' ? m.building : 'Bên ngoài', place: b.area === 'cc' ? b.apt.toUpperCase() : b.addr,
-        deliverAt: b.when || earliest(t), asap: b.when == null, lines: c.lines, gross: c.gross, discount: c.discount, ship: 0, total: c.total,
-        pay: b.pay, money: b.pay === 'bank' ? 'Chưa thanh toán' : 'Trả khi nhận hàng', note: b.note, zalo: false, cancelUntil: t + 5 * 60000, canEdit: false, paid: 0, due: c.total,
+        deliverAt: b.when || earliest(t), asap: b.when == null, lines: Q.lines, gross: Q.gross, discount: Q.discount, ship: 0, total: Q.total, la: Q.la, applied: Q.applied, voucher: Q.voucher, laEarn: 0,
+        pay: b.pay, money: b.pay === 'bank' ? 'Chưa thanh toán' : 'Trả khi nhận hàng', note: b.note, zalo: false, cancelUntil: t + 5 * 60000, canEdit: false, paid: 0, due: Q.total,
         bank: b.pay === 'bank' ? { bin: '970416', bankName: 'ACB', acct: '822258', owner: 'LO TAN KHANH' } : null, zaloLink: m.zalo };
       o.canEdit = o.status === 'Mới';
       db.orders[code] = o;
+      if (Q.la) db.la -= Q.la;
+      if (Q.voucher) { const v = db.vouchers.find(x => x.id === Q.voucher.id); if (v) v.lock = code; }
       return { ok: true, order: Object.assign({}, o, { fb: this.fbOf(o) }), token: 'demo' };
     }
     const o = db.orders[b.code];
@@ -928,8 +1101,8 @@ const Demo = {
       o.bank = b.pay === 'bank' ? { bin: '970416', bankName: 'ACB', acct: '822258', owner: 'LO TAN KHANH' } : null;
       return { ok: true, order: Object.assign({}, o, { fb: this.fbOf(o) }) };
     }
-    if (b.action === 'join') { db.member = { phone: b.phone, name: b.name, area: b.area, place: b.area === 'cc' ? b.apt.toUpperCase() : b.addr, status: 'Thành viên' }; return { ok: true, token: 'demo' }; }
-    if (b.action === 'me') return db.member ? { ok: true, member: db.member, orders: [] } : { ok: false, error: 'NOT_FOUND' };
+    if (b.action === 'join') { db.member = { phone: b.phone, name: b.name, area: b.area, place: b.area === 'cc' ? b.apt.toUpperCase() : b.addr, status: 'Thành viên' }; if (!db.vouchers.length) db.vouchers.push({ id: 'KM02', name: 'Chào mừng', text: 'Giảm 5.000đ', exp: '16/12', lock: '' }); return { ok: true, token: 'demo', granted: ['Chào mừng'] }; }
+    if (b.action === 'me') return db.member ? { ok: true, member: db.member, orders: [], la: db.la, laStep: 5000, laRate: 5, vouchers: JSON.parse(JSON.stringify(db.vouchers)) } : { ok: false, error: 'NOT_FOUND' };
     return { ok: false, error: 'SERVER' };
   }
 };
