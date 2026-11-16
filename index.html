@@ -185,11 +185,12 @@ const ERR = {
   BAD_TIME: 'Giờ giao này không còn hợp lệ, bạn chọn lại giúp Tiệm.', PAUSED: 'Tiệm đang tạm ngưng nhận đơn.',
   TOO_MANY: 'Bạn đặt nhiều đơn quá, đợi một lát rồi thử lại nhé.', GONE: 'Có món vừa hết hàng. Thực đơn đã được tải lại.',
   PRICE_CHANGED: 'Giá vừa thay đổi. Bạn xem lại tổng tiền rồi đặt lại nhé.', EMPTY: 'Giỏ hàng đang trống.',
-  TOO_LATE: 'Đã quá thời gian được huỷ. Bạn nhắn Tiệm qua Zalo nếu cần đổi đơn.', LOCKED: 'Tiệm đã xử lý đơn này nên không huỷ được nữa.',
+  TOO_LATE: 'Đã quá thời gian được huỷ đơn.', LOCKED: 'Đơn đang được giao hoặc đã xong nên không thay đổi được nữa.',
+  PAID_ALREADY: 'Đơn đã thanh toán nên không đổi cách thanh toán được.', BAD_PAY: 'Cách thanh toán chưa hợp lệ.', BAD_QTY: 'Số lượng chưa hợp lệ.',
   NOT_FOUND: 'Không tìm thấy đơn.', NET: 'Không kết nối được. Kiểm tra mạng rồi thử lại.', SERVER: 'Hệ thống đang bận, bạn thử lại sau ít phút.',
-  NOT_DONE: 'Đơn này chưa giao xong nên chưa gửi được mục này.', TOO_LATE_FB: 'Đã quá thời hạn gửi mục này. Bạn nhắn Tiệm qua Zalo nếu cần.',
+  NOT_DONE: 'Đơn này chưa giao xong nên chưa gửi được mục này.', TOO_LATE_FB: 'Đã quá thời hạn gửi mục này.',
   ALREADY: 'Bạn đã đánh giá đơn này rồi.', DUP: 'Bạn đã báo lỗi này rồi, Tiệm đang xem xét.',
-  LIMIT: 'Đơn này đã đủ số lần báo lỗi tối đa. Bạn nhắn Tiệm qua Zalo nếu cần thêm.',
+  LIMIT: 'Đơn này đã đủ số lần báo lỗi tối đa.',
   BAD_STARS: 'Bạn chọn số sao giúp Tiệm.', BAD_KIND: 'Bạn chọn loại lỗi giúp Tiệm.', BAD_WANT: 'Bạn chọn cách Tiệm xử lý giúp.', BAD_ITEM: 'Bạn chọn món bị lỗi giúp Tiệm.'
 };
 const errText = r => ERR[r && r.error] || ERR.SERVER;
@@ -295,9 +296,40 @@ const S = {
   menu: null, skew: 0, cart: store.get('samila.cart', {}), tab: 'menu', view: 'menu',
   profile: store.get('samila.profile', {}), member: store.get('samila.member', null),
   orders: store.get('samila.orders', []),            // [{code, token, at}] đơn đặt từ máy này
-  co: { area: null, asap: true, day: 0, slot: null, pay: null }, busy: false, order: null, tick: null, poll: null
+  co: { area: null, asap: true, day: 0, slot: null, pay: null }, busy: false, order: null, tick: null, poll: null, adding: null, cartKeep: null
 };
-function saveCart() { store.set('samila.cart', S.cart); }
+function saveCart() { if (!S.adding) store.set('samila.cart', S.cart); }
+// Giỏ để tính giá: món đã có trong đơn đang thêm + món mới chọn.
+function effCart() {
+  if (!S.adding) return S.cart;
+  const c = Object.assign({}, S.cart);
+  for (const l of S.adding.o.lines) c[l.name] = (c[l.name] || 0) + l.qty;
+  return c;
+}
+function startAdd() {
+  const { o, token } = S.order;
+  S.adding = { code: o.code, token, o, err: '' };
+  S.cartKeep = S.cart; S.cart = {};
+  renderMenu(); show('menu');
+}
+function stopAdd() {
+  if (!S.adding) return;
+  S.adding = null; S.cart = S.cartKeep || {}; S.cartKeep = null;
+}
+async function submitAdd() {
+  const a = S.adding, c = calc(S.menu.products, S.menu.tiers, effCart());
+  $('barBtn').disabled = true; $('barBtn').textContent = 'Đang gửi…';
+  const r = await call({ action: 'add', hp: '', code: a.code, token: a.token,
+    items: Object.keys(S.cart).map(n => ({ name: n, qty: S.cart[n] })), clientTotal: c.total + (a.o.ship || 0) });
+  if (!r.ok) {
+    if (r.order && r.error === 'LOCKED') { const t = a.token; stopAdd(); openOrder(r.order, t, false); renderOrder({ ok: false, text: errText(r) }); return; }
+    if (['GONE', 'PRICE_CHANGED'].includes(r.error)) await loadMenu();
+    a.err = errText(r); renderMenu(); renderBar(); return;
+  }
+  const t = a.token; stopAdd();
+  openOrder(r.order, t, false);
+  renderOrder({ ok: true, text: 'Đã thêm món vào đơn. Tiệm sẽ xác nhận lại đơn của bạn.' });
+}
 
 function show(view) {
   S.view = view;
@@ -357,8 +389,13 @@ function renderMenu() {
     if (!groups.has(key)) groups.set(key, { flavor: n.flavor, pack: n.pack, items: [] });
     groups.get(key).items.push({ p, size: n.size });
   }
-  const c = calc(m.products, m.tiers, S.cart);
+  const c = calc(m.products, m.tiers, effCart());
   const unitOf = name => { const l = c.lines.find(x => x.name === name); return l ? l.amount / l.qty : null; };
+  if (S.adding) root.append(h('div', { class: 'card' },
+    h('h3', {}, 'Thêm món vào đơn ' + S.adding.code),
+    h('p', { class: 'small', style: 'margin:4px 0 8px' }, 'Món chọn thêm sẽ gộp vào đơn này. Đơn quay lại chờ Tiệm xác nhận.'),
+    S.adding.err ? h('div', { class: 'msg bad', role: 'alert' }, S.adding.err) : null,
+    h('button', { class: 'btn ghost', type: 'button', onclick: () => { const o = S.adding.o, t = S.adding.token; stopAdd(); openOrder(o, t, false); } }, 'Không thêm nữa')));
   root.append(h('h2', {}, 'Thực đơn'));
   for (const g of groups.values()) {
     const card = h('article', { class: 'card flavor' }, h('h3', {}, g.flavor), g.pack ? h('div', { class: 'sub' }, 'Đóng ' + g.pack) : null);
@@ -397,11 +434,18 @@ function renderBar() {
   const show = S.menu && (S.view === 'menu') && Object.keys(S.cart).length > 0;
   $('bar').classList.toggle('hidden', !show);
   if (!show) return;
-  const c = calc(S.menu.products, S.menu.tiers, S.cart);
+  const c = calc(S.menu.products, S.menu.tiers, effCart());
+  const added = Object.values(S.cart).reduce((s, n) => s + n, 0);
+  if (S.adding) {
+    setKids($('barSum'), h('div', { class: 'small' }, '+' + added + ' chai · tổng đơn'), h('b', {}, money(c.total + (S.adding.o.ship || 0))));
+    $('barBtn').textContent = 'Thêm vào đơn'; $('barBtn').disabled = S.menu.paused;
+    return;
+  }
   setKids($('barSum'), h('div', { class: 'small' }, c.count + ' chai'), h('b', {}, money(c.total)), c.discount ? h('s', {}, money(c.gross)) : '');
+  $('barBtn').textContent = 'Đặt hàng';
   $('barBtn').disabled = S.menu.paused;
 }
-$('barBtn').addEventListener('click', () => { renderCheckout(); show('checkout'); });
+$('barBtn').addEventListener('click', () => { if (S.adding) { submitAdd(); return; } renderCheckout(); show('checkout'); });
 
 /* ================= Thanh toán ================= */
 function renderCheckout(error) {
@@ -509,6 +553,7 @@ function statusText(st) { return st === 'Mới' ? 'Chờ Tiệm xác nhận' : s
 function stopTimers() { clearInterval(S.tick); clearInterval(S.poll); S.tick = S.poll = null; }
 
 function openOrder(o, token, fresh) {
+  stopAdd();
   S.order = { o, token, fresh };
   S.fb = { rate: { stars: 0, tags: [], note: '' }, rep: { open: false, item: '', kind: '', want: '', note: '' } };   // bản nháp đánh giá / báo lỗi
   renderOrder();
@@ -534,7 +579,7 @@ function renderOrder(note) {
   const { o, token, fresh } = S.order, root = $('v-order');
   const canCancel = o.status === 'Mới' && o.cancelUntil > now();
   const left = o.cancelUntil - now();
-  const zl = o.zaloLink || (S.menu && S.menu.zalo);
+  const live = !['Huỷ', 'Từ chối', 'Đã giao'].includes(o.status);
   setKids(root, 
     h('button', { class: 'back', type: 'button', onclick: () => { renderOrders(); show('orders'); } }, '‹ Đơn của tôi'),
     fresh ? h('div', { class: 'msg ok', role: 'status' }, 'Đặt đơn thành công. Tiệm đã nhận được đơn của bạn.') : null,
@@ -548,13 +593,11 @@ function renderOrder(note) {
         h('div', { class: 'txt' }, 'Bạn còn thời gian này để tự huỷ đơn.'),
         h('button', { class: 'btn danger', type: 'button', onclick: cancelOrder }, 'Huỷ đơn')) : null),
     o.pay === 'bank' && o.bank && o.bank.acct && !['Huỷ', 'Từ chối'].includes(o.status) ? bankCard(o) : null,
-    !['Huỷ', 'Từ chối', 'Đã giao'].includes(o.status) ? h('div', { class: 'card zalo' },
-      h('h3', {}, o.zalo ? 'Đã liên kết Zalo' : 'Theo dõi đơn qua Zalo'),
-      o.zalo ? h('p', { style: 'margin:6px 0 0' }, 'Tiệm sẽ nhắn bạn qua Zalo khi đơn được nhận, đang giao và đã giao.')
-        : [h('ol', { class: 'steps' }, h('li', {}, 'Chép mã đơn ', h('b', {}, o.code)), h('li', {}, 'Mở Zalo Sâmila'), h('li', {}, 'Gửi mã đơn cho Tiệm')),
-          h('div', { class: 'inline' },
-            h('button', { class: 'btn ghost', type: 'button', onclick: e => copy(o.code, e.target) }, 'Chép mã đơn'),
-            zl ? h('a', { class: 'btn', href: zl, target: '_blank', rel: 'noopener', style: 'text-decoration:none' }, 'Mở Zalo Sâmila') : null)]) : null,
+    o.canEdit ? editCard(o) : null,
+    live && !S.member ? h('div', { class: 'card zalo' },
+      h('h3', {}, 'Trở thành thành viên'),
+      h('p', { style: 'margin:6px 0 10px' }, 'Trở thành thành viên để đặt nhanh hơn và nhận khuyến mãi.'),
+      h('button', { class: 'btn', type: 'button', onclick: () => { renderMember(); show('member'); } }, 'Đăng ký thành viên')) : null,
     h('div', { class: 'card' },
       h('h3', {}, 'Chi tiết đơn'),
       h('dl', { class: 'kv' },
@@ -635,14 +678,58 @@ async function submitReport(e) {
   if (r.ok) S.fb.rep = { open: false, item: '', kind: '', want: '', note: '' };
   renderOrder(r.ok ? { ok: true, text: 'Tiệm đã nhận báo lỗi của bạn và sẽ liên hệ sớm.' } : { ok: false, text: errText(r) });
 }
+function editCard(o) {
+  const to = o.pay === 'bank' ? 'cash' : 'bank';
+  return h('div', { class: 'card' },
+    h('h3', {}, 'Thay đổi đơn'),
+    h('p', { class: 'small', style: 'margin:4px 0 10px' }, 'Bạn thêm món hoặc đổi cách thanh toán được đến khi Tiệm bắt đầu giao.'),
+    h('div', { class: 'inline' },
+      h('button', { class: 'btn', type: 'button', onclick: startAdd }, 'Thêm món'),
+      !o.paid ? h('button', { class: 'btn ghost', type: 'button', onclick: e => changePay(e, to) }, to === 'bank' ? 'Đổi sang chuyển khoản' : 'Đổi sang tiền mặt') : null));
+}
+async function changePay(e, to) {
+  e.target.disabled = true; e.target.textContent = 'Đang gửi…';
+  const r = await call({ action: 'setpay', code: S.order.o.code, token: S.order.token, pay: to });
+  if (r.order) S.order.o = r.order;
+  S.order.fresh = false;
+  renderOrder(r.ok ? { ok: true, text: to === 'bank' ? 'Đã đổi sang chuyển khoản. Bạn quét mã QR bên dưới nhé.' : 'Đã đổi sang tiền mặt. Bạn trả khi nhận hàng.' } : { ok: false, text: errText(r) });
+}
+function downloadQr(code, btn) {
+  const svg = document.querySelector('.card.qr .box svg');
+  if (!svg) return;
+  const clone = svg.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('width', 720); clone.setAttribute('height', 720);
+  const img = new Image();
+  img.onload = () => {
+    const pad = 40, cv = document.createElement('canvas');
+    cv.width = cv.height = 720 + pad * 2;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
+    g.imageSmoothingEnabled = false;
+    g.drawImage(img, pad, pad, 720, 720);
+    cv.toBlob(b => {
+      if (!b) return;
+      const url = URL.createObjectURL(b), a = document.createElement('a');
+      a.href = url; a.download = 'QR-' + code + '.png';
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      const t = btn.textContent; btn.textContent = 'Đã tải mã QR'; setTimeout(() => { btn.textContent = t; }, 2000);
+    }, 'image/png');
+  };
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(clone));
+}
 function bankCard(o) {
   const b = o.bank, content = o.code;
-  const box = qrSvg(vietqr(b.bin, b.acct, o.total, content));
+  const amt = o.due != null ? o.due : o.total;
+  const box = amt > 0 ? qrSvg(vietqr(b.bin, b.acct, amt, content)) : null;
   const waiting = o.money === 'Chưa thanh toán';
   return h('div', { class: 'card qr' },
-    h('h3', {}, 'Chuyển khoản ' + money(o.total)),
+    h('h3', {}, 'Chuyển khoản ' + money(amt)),
+    o.paid > 0 && amt > 0 ? h('p', { class: 'small', style: 'margin:4px 0 0' }, 'Bạn đã chuyển ' + money(o.paid) + ', cần chuyển thêm phần món vừa thêm.') : null,
     h('p', { class: 'small', style: 'margin:4px 0 0' }, 'Quét bằng app ngân hàng bất kỳ. Số tiền và nội dung đã điền sẵn.'),
-    box || h('p', {}, 'Không tạo được mã QR, bạn chuyển theo thông tin bên dưới.'),
+    box || h('p', {}, amt > 0 ? 'Không tạo được mã QR, bạn chuyển theo thông tin bên dưới.' : 'Đơn đã được thanh toán đủ.'),
+    box ? h('button', { class: 'btn ghost block', type: 'button', style: 'margin-top:10px', onclick: e => downloadQr(o.code, e.target) }, 'Tải mã QR về máy') : null,
     h('dl', { class: 'kv' },
       h('dt', {}, 'Ngân hàng'), h('dd', {}, b.bankName),
       h('dt', {}, 'Số tài khoản'), h('dd', {}, b.acct),
@@ -703,18 +790,9 @@ function memberCard(root, r) {
   const m = r.member;
   S.profile = Object.assign(S.profile, { phone: m.phone, name: m.name, area: m.area, [m.area === 'out' ? 'addr' : 'apt']: m.place });
   store.set('samila.profile', S.profile);
-  if (m.status !== 'Thành viên') {
-    root.append(h('div', { class: 'card zalo' },
-      h('h3', {}, 'Còn một bước: xác nhận qua Zalo'),
-      h('ol', { class: 'steps' }, h('li', {}, 'Chép mã ', h('b', {}, m.code)), h('li', {}, 'Mở Zalo Sâmila'), h('li', {}, 'Gửi mã cho Tiệm')),
-      h('div', { class: 'inline' },
-        h('button', { class: 'btn ghost', type: 'button', onclick: e => copy(m.code, e.target) }, 'Chép mã'),
-        r.zaloLink ? h('a', { class: 'btn', href: r.zaloLink, target: '_blank', rel: 'noopener', style: 'text-decoration:none' }, 'Mở Zalo Sâmila') : null),
-      h('button', { class: 'back', type: 'button', onclick: () => renderMember() }, 'Tôi đã gửi mã, kiểm tra lại')));
-  }
   root.append(h('div', { class: 'card' },
     h('h3', {}, m.name),
-    h('p', { class: 'small', style: 'margin:2px 0 8px' }, m.status === 'Thành viên' ? 'Thành viên đã xác nhận qua Zalo' : 'Chờ xác nhận qua Zalo'),
+    h('p', { class: 'small', style: 'margin:2px 0 8px' }, 'Thành viên Sâmila'),
     h('dl', { class: 'kv' }, h('dt', {}, 'SĐT'), h('dd', {}, m.phone), h('dt', {}, 'Giao tới'), h('dd', {}, m.area === 'out' ? m.place : (S.menu ? S.menu.building : 'Chung cư') + ', căn ' + m.place)),
     h('p', { class: 'small', style: 'margin:10px 0 0' }, 'Thông tin này tự điền khi bạn đặt hàng.'),
     h('button', { class: 'back', type: 'button', onclick: () => { S.member = null; store.set('samila.member', null); joinForm(setKids(root, h('h2', {}, 'Sửa thông tin')) || root, m); } }, 'Sửa thông tin')));
@@ -724,6 +802,18 @@ function memberCard(root, r) {
     } }, h('div', { class: 'top' }, h('b', {}, o.code), h('span', { class: badgeClass(o.status) }, statusText(o.status))),
       h('div', { class: 'it' }, o.items), h('div', { class: 'top', style: 'margin-top:6px' }, h('span', { class: 'small' }, new Date(o.at).toLocaleDateString('vi-VN')), h('b', {}, money(o.total)))))));
   }
+  root.append(homeGuide());
+}
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); window.__bip = e; });
+function homeGuide() {
+  const standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+  if (standalone) return null;
+  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  return h('div', { class: 'card' },
+    h('h3', {}, 'Thêm vào màn hình chính để đặt lại nhanh hơn'),
+    ios ? h('p', { class: 'small', style: 'margin:6px 0 0' }, 'Trên iPhone: bấm nút Chia sẻ của Safari, chọn “Thêm vào MH chính”.')
+      : window.__bip ? h('button', { class: 'btn', type: 'button', style: 'margin-top:10px', onclick: async () => { window.__bip.prompt(); await window.__bip.userChoice; window.__bip = null; renderMember(); } }, 'Thêm vào màn hình chính')
+      : h('p', { class: 'small', style: 'margin:6px 0 0' }, 'Mở menu ⋮ của trình duyệt, chọn “Thêm vào màn hình chính”.'));
 }
 function joinForm(root, prev) {
   const pf = prev ? { phone: prev.phone, name: prev.name, area: prev.area, apt: prev.area === 'cc' ? prev.place : '', addr: prev.area === 'out' ? prev.place : '' } : S.profile;
@@ -731,7 +821,7 @@ function joinForm(root, prev) {
   const f = {};
   const form = h('div', { class: 'card' },
     h('h3', {}, 'Đăng ký thành viên'),
-    h('p', { class: 'small', style: 'margin:4px 0 0' }, 'Đăng ký một lần, lần sau đặt hàng không cần nhập lại. Tiệm báo đơn cho bạn qua Zalo.'),
+    h('p', { class: 'small', style: 'margin:4px 0 0' }, 'Đăng ký một lần, lần sau đặt hàng không cần nhập lại. Bạn là thành viên ngay sau khi đăng ký.'),
     h('label', { class: 'f', for: 'j-phone' }, 'Số điện thoại'),
     (f.phone = h('input', { class: 't', id: 'j-phone', type: 'tel', inputmode: 'tel', autocomplete: 'tel', value: pf.phone || '' })),
     h('label', { class: 'f', for: 'j-name' }, 'Tên'),
@@ -753,6 +843,7 @@ function joinForm(root, prev) {
   }
   drawArea();
   root.append(form);
+  root.append(homeGuide());
   async function submit() {
     const phone = f.phone.value.replace(/[^\d+]/g, '').replace(/^\+84/, '0');
     if (!/^0\d{9}$/.test(phone)) { f.err.textContent = ERR.BAD_PHONE; return; }
@@ -797,8 +888,9 @@ const Demo = {
       const code = 'SML' + String(Math.floor(10000 + Math.random() * 89999)), t = Date.now();
       const o = { code, at: t, status: new URLSearchParams(location.search).get('xem') === 'giao' ? 'Đã giao' : 'Mới', phone: b.phone, name: b.name, area: b.area === 'cc' ? m.building : 'Bên ngoài', place: b.area === 'cc' ? b.apt.toUpperCase() : b.addr,
         deliverAt: b.when || earliest(t), asap: b.when == null, lines: c.lines, gross: c.gross, discount: c.discount, ship: 0, total: c.total,
-        pay: b.pay, money: b.pay === 'bank' ? 'Chưa thanh toán' : 'Trả khi nhận hàng', note: b.note, zalo: false, cancelUntil: t + 5 * 60000,
+        pay: b.pay, money: b.pay === 'bank' ? 'Chưa thanh toán' : 'Trả khi nhận hàng', note: b.note, zalo: false, cancelUntil: t + 5 * 60000, canEdit: false, paid: 0, due: c.total,
         bank: b.pay === 'bank' ? { bin: '970416', bankName: 'ACB', acct: '822258', owner: 'LO TAN KHANH' } : null, zaloLink: m.zalo };
+      o.canEdit = o.status === 'Mới';
       db.orders[code] = o;
       return { ok: true, order: Object.assign({}, o, { fb: this.fbOf(o) }), token: 'demo' };
     }
@@ -817,10 +909,27 @@ const Demo = {
       }
       return { ok: true, order: Object.assign({}, o, { fb: this.fbOf(o) }) };
     }
-    if (b.action === 'cancel') { if (!o) return { ok: false, error: 'NOT_FOUND' }; if (Date.now() > o.cancelUntil) return { ok: false, error: 'TOO_LATE', order: o }; o.status = 'Huỷ'; return { ok: true, order: o }; }
+    if (b.action === 'cancel') { if (!o) return { ok: false, error: 'NOT_FOUND' }; if (Date.now() > o.cancelUntil) return { ok: false, error: 'TOO_LATE', order: o }; o.status = 'Huỷ'; o.canEdit = false; return { ok: true, order: o }; }
     if (b.action === 'paid') { o.money = 'Đang xác nhận thanh toán'; return { ok: true, order: o }; }
-    if (b.action === 'join') { db.member = { phone: b.phone, name: b.name, area: b.area, place: b.area === 'cc' ? b.apt.toUpperCase() : b.addr, status: 'Chờ xác nhận', code: 'TV' + String(Math.floor(100000 + Math.random() * 899999)) }; return { ok: true, token: 'demo', code: db.member.code }; }
-    if (b.action === 'me') return db.member ? { ok: true, member: db.member, orders: [], zaloLink: m.zalo } : { ok: false, error: 'NOT_FOUND' };
+    if (b.action === 'add') {
+      if (!o) return { ok: false, error: 'NOT_FOUND' };
+      if (!o.canEdit) return { ok: false, error: 'LOCKED', order: o };
+      const cart = {};
+      o.lines.forEach(l => { cart[l.name] = l.qty; });
+      b.items.forEach(i => { cart[i.name] = (cart[i.name] || 0) + i.qty; });
+      const c = calc(m.products, m.tiers, cart);
+      Object.assign(o, { lines: c.lines, gross: c.gross, discount: c.discount, total: c.total, due: c.total - o.paid, status: 'Mới', canEdit: true });
+      if (o.pay === 'bank' && o.due > 0) o.money = 'Chưa thanh toán';
+      return { ok: true, order: Object.assign({}, o, { fb: this.fbOf(o) }) };
+    }
+    if (b.action === 'setpay') {
+      if (!o) return { ok: false, error: 'NOT_FOUND' };
+      o.pay = b.pay; o.money = b.pay === 'bank' ? 'Chưa thanh toán' : 'Trả khi nhận hàng';
+      o.bank = b.pay === 'bank' ? { bin: '970416', bankName: 'ACB', acct: '822258', owner: 'LO TAN KHANH' } : null;
+      return { ok: true, order: Object.assign({}, o, { fb: this.fbOf(o) }) };
+    }
+    if (b.action === 'join') { db.member = { phone: b.phone, name: b.name, area: b.area, place: b.area === 'cc' ? b.apt.toUpperCase() : b.addr, status: 'Thành viên' }; return { ok: true, token: 'demo' }; }
+    if (b.action === 'me') return db.member ? { ok: true, member: db.member, orders: [] } : { ok: false, error: 'NOT_FOUND' };
     return { ok: false, error: 'SERVER' };
   }
 };
