@@ -24,7 +24,9 @@
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Be Vietnam Pro",system-ui,sans-serif}
 button,input,select,textarea{font:inherit;color:inherit}
-button{cursor:pointer}
+button{cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+html,body{touch-action:manipulation}
+.step{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 :focus-visible{outline:3px solid #8db86b;outline-offset:2px}
 .wrap{max-width:560px;margin:0 auto;padding:0 16px calc(110px + env(safe-area-inset-bottom))}
 .hero{display:block;width:100%;height:auto;max-width:560px;margin:0 auto;aspect-ratio:1118/308;object-fit:cover}
@@ -211,6 +213,9 @@ const ERR = {
   NOT_DONE: 'Đơn này chưa giao xong nên chưa gửi được mục này.', TOO_LATE_FB: 'Đã quá thời hạn gửi mục này.',
   ALREADY: 'Bạn đã đánh giá đơn này rồi.', DUP: 'Bạn đã báo lỗi này rồi, Tiệm đang xem xét.',
   LIMIT: 'Đơn này đã đủ số lần báo lỗi tối đa.',
+  NEED_CODE: 'Số này đã là thành viên. Tiệm vừa gửi mã 6 số qua Zalo của bạn, nhập mã vào ô bên dưới để dùng trên máy này.',
+  BAD_CODE: 'Mã chưa đúng hoặc đã hết hạn. Bạn kiểm tra lại giúp Tiệm.',
+  MEMBER_EXISTS: 'Số này đã là thành viên trên một máy khác. Bạn nhắn Tiệm hoặc nhờ nhân viên xác nhận khi mua tại quầy để dùng trên máy này.',
   BAD_STARS: 'Bạn chọn số sao giúp Tiệm.', BAD_KIND: 'Bạn chọn loại lỗi giúp Tiệm.', BAD_WANT: 'Bạn chọn cách Tiệm xử lý giúp.', BAD_ITEM: 'Bạn chọn món bị lỗi giúp Tiệm.'
 };
 const errText = r => ERR[r && r.error] || ERR.SERVER;
@@ -386,7 +391,8 @@ function autoVoucher() {
   if (v) { co.voucher = v.id; co.autoV = true; S.quote = null; }
 }
 const quoteKey = () => JSON.stringify([S.cart, S.co.area, phone10(), mtokenFor(phone10()) ? 1 : 0, S.co.voucher, S.co.useLa]);
-let qSeq = 0;
+const quoteFailed = () => !!(S.quote && S.quote.failed && S.quote.key === quoteKey());   // tính ưu đãi lỗi quá 2 lần: cho đặt, máy chủ tính giá
+let qSeq = 0, qTry = { key: '', n: 0 };
 async function refreshQuote() {
   if (!needQuote() || !Object.keys(S.cart).length) return;
   const key = quoteKey();
@@ -394,13 +400,21 @@ async function refreshQuote() {
   const seq = ++qSeq, ph = phone10();
   const r = await call({ action: 'quote', cid: CID, items: Object.keys(S.cart).map(n => ({ name: n, qty: S.cart[n] })), area: S.co.area || '', phone: ph, mtoken: mtokenFor(ph), voucher: S.co.voucher, useLa: S.co.useLa });
   if (seq !== qSeq) return;
-  S.quote = { key, q: r.ok ? r.quote : null };
+  if (!r.ok) {                                                 // lỗi thì không nhớ kết quả: thử lại, quá 2 lần thì cho đặt theo giá máy chủ
+    if (qTry.key !== key) qTry = { key, n: 0 };
+    if (qTry.n < 2) { qTry.n++; setTimeout(() => { if (seq === qSeq) refreshQuote(); }, 1500 * qTry.n); return; }
+    S.quote = { key, q: null, failed: true };
+    if (S.view === 'checkout') { if (S.keep) S.keep(); renderCheckout(); }
+    return;
+  }
+  qTry = { key: '', n: 0 };
+  S.quote = { key, q: r.quote };
   S.qnote = '';
-  if (r.ok && r.quote.vErr) {
+  if (r.quote.vErr) {
     if (S.co.autoV) { S.co.voucher = ''; S.co.autoV = false; S.co.autoSkip = JSON.stringify([S.cart, phone10()]); S.qnote = ''; }
     else { S.co.voucher = ''; S.qnote = errText({ error: r.quote.vErr }); }
   }
-  if (r.ok && r.quote.laErr) { S.co.useLa = false; S.qnote = errText({ error: r.quote.laErr }); }
+  if (r.quote.laErr) { S.co.useLa = false; S.qnote = errText({ error: r.quote.laErr }); }
   if (S.view === 'checkout') { if (S.keep) S.keep(); renderCheckout(); }
 }
 // Tính thử khi thêm món vào đơn đang có (có cả khuyến mãi, voucher, lá của đơn đó).
@@ -467,16 +481,26 @@ document.querySelectorAll('nav.tabs button').forEach(b => b.addEventListener('cl
   if (t === 'member') { renderMember(); show('member'); }
 }));
 
-async function loadMenu() {
+async function loadMenu(cached) {
+  if (cached) {                                   // hiện ngay thực đơn lưu lần trước, rồi tải ngầm bản mới
+    try {
+      const c = JSON.parse(localStorage.getItem('sml_menu') || 'null');
+      if (c && c.r && c.r.products && Date.now() - c.t < 86400000) { S.menu = c.r; S.skew = c.r.now - c.t; applyMenu(c.r); return true; }
+    } catch (e) {}
+  }
   const r = await call({ action: 'menu' });
+  if (r.ok) { try { localStorage.setItem('sml_menu', JSON.stringify({ t: Date.now(), r: r })); } catch (e) {} }
   if (!r.ok) { $('status').className = 'status stop'; $('status').textContent = errText(r) + ' Kéo xuống để tải lại trang.'; return false; }
   S.menu = r; S.skew = r.now - Date.now();
+  applyMenu(r);
+  return true;
+}
+function applyMenu(r) {
   // Bỏ món đã ngưng bán khỏi giỏ.
   const names = r.products.map(p => p.name);
   for (const n of Object.keys(S.cart)) if (!names.includes(n) || !(S.cart[n] > 0)) delete S.cart[n];
   saveCart();
   renderStatus();
-  return true;
 }
 function renderStatus() {
   const m = S.menu, st = $('status');
@@ -611,7 +635,7 @@ function renderCheckout(error) {
   const days = slotDays();
   if (!co.asap && (!days[co.day] || !days[co.day].slots.includes(co.slot))) { co.day = 0; co.slot = days[0] ? days[0].slots[0] : null; }
   const first = earliest(now());
-  const T = totalsFor(c, ship), pend = needQuote() && !T.server;
+  const T = totalsFor(c, ship), pend = needQuote() && !T.server && !quoteFailed();
   const f = {};
   const input = (key, attrs) => (f[key] = h(attrs.tag || 'input', Object.assign({ class: 't', id: 'f-' + key }, attrs, { tag: null })));
   setKids(root, 
@@ -676,6 +700,7 @@ function renderCheckout(error) {
   if (needQuote()) refreshQuote();
 }
 
+const newRid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
 async function place(f, c, ship) {
   const err = $('coErr'), co = S.co;
   S.keep();
@@ -690,14 +715,14 @@ async function place(f, c, ship) {
   else if (!co.pay) msg = 'Bạn chọn cách thanh toán giúp Tiệm.';
   if (msg) { err.textContent = msg; err.scrollIntoView({ block: 'center' }); return; }
   const T = totalsFor(c, ship);
-  if (needQuote() && !T.server) return;
+  if (needQuote() && !T.server && !quoteFailed()) return;
   pf.area = co.area; store.set('samila.profile', pf);
   S.busy = true; $('placeBtn').disabled = true; $('placeBtn').textContent = 'Đang gửi đơn…';
   const r = await call({
     action: 'order', cid: CID, hp: f.hp.value, phone, name: pf.name || '', area: co.area, apt: pf.apt || '', addr: pf.addr || '',
     when: co.asap ? null : co.slot, pay: co.pay, note: co.note || '',
-    items: c.lines.map(l => ({ name: l.name, qty: l.qty })), clientTotal: T.total,
-    mtoken: mtokenFor(phone), voucher: mtokenFor(phone) ? S.co.voucher : '', useLa: mtokenFor(phone) ? S.co.useLa : false
+    items: c.lines.map(l => ({ name: l.name, qty: l.qty })), clientTotal: quoteFailed() ? null : T.total, rid: (co.rid = co.rid || newRid()),
+    mtoken: mtokenFor(phone), voucher: S.co.voucher || '', useLa: mtokenFor(phone) ? S.co.useLa : false
   });
   S.busy = false;
   if (!r.ok) {
@@ -708,7 +733,7 @@ async function place(f, c, ship) {
   }
   S.orders = [{ code: r.order.code, token: r.token, at: r.order.at }].concat(S.orders.filter(o => o.code !== r.order.code)).slice(0, 30);
   store.set('samila.orders', S.orders);
-  S.cart = {}; saveCart(); S.co.note = ''; S.co.voucher = ''; S.co.voucherOff = false; S.co.autoV = false; S.co.autoSkip = ''; S.co.useLa = false; S.me = null; S.quote = null;
+  S.co.rid = ''; S.cart = {}; saveCart(); S.co.note = ''; S.co.voucher = ''; S.co.voucherOff = false; S.co.autoV = false; S.co.autoSkip = ''; S.co.useLa = false; S.me = null; S.quote = null;
   openOrder(r.order, r.token, true);
 }
 
@@ -972,7 +997,7 @@ function memberCard(root, r) {
     } }, h('div', { class: 'top' }, h('b', {}, o.code), h('span', { class: badgeClass(o.status) }, statusText(o.status))),
       h('div', { class: 'it' }, o.items), h('div', { class: 'top', style: 'margin-top:6px' }, h('span', { class: 'small' }, new Date(o.at).toLocaleDateString('vi-VN')), h('b', {}, money(o.total)))))));
   }
-  root.append(homeGuide());
+  { const g = homeGuide(); if (g) root.append(g); }
 }
 function perksCard(r) {
   const vs = r.vouchers || [];
@@ -1012,6 +1037,7 @@ function joinForm(root, prev) {
     h('div', { class: 'f' }, 'Thường giao tới'),
     (f.areaBox = h('div', { class: 'choices' })),
     (f.placeBox = h('div', {})),
+    (f.codeBox = h('div', { class: 'hidden' }, h('label', { class: 'f', for: 'j-code' }, 'Mã xác nhận 6 số (gửi qua Zalo)'), (f.code = h('input', { class: 't', id: 'j-code', inputmode: 'numeric', maxlength: 6, autocomplete: 'one-time-code' })))),
     h('div', { class: 'hp', 'aria-hidden': 'true' }, (f.hp = h('input', { tabindex: '-1', autocomplete: 'off' }))),
     (f.err = h('div', { class: 'err', role: 'alert' })),
     (f.btn = h('button', { class: 'btn block', style: 'margin-top:14px', type: 'button', onclick: submit }, 'Đăng ký')));
@@ -1026,15 +1052,19 @@ function joinForm(root, prev) {
   }
   drawArea();
   root.append(form);
-  root.append(homeGuide());
+  { const g = homeGuide(); if (g) root.append(g); }
   async function submit() {
     const phone = f.phone.value.replace(/[^\d+]/g, '').replace(/^\+84/, '0');
     if (!/^0\d{9}$/.test(phone)) { f.err.textContent = ERR.BAD_PHONE; return; }
     if (!f.name.value.trim()) { f.err.textContent = ERR.NEED_NAME; return; }
     if (!f.place.value.trim()) { f.err.textContent = area === 'cc' ? ERR.NEED_APT : ERR.NEED_ADDR; return; }
     f.btn.disabled = true; f.btn.textContent = 'Đang gửi…';
-    const r = await call({ action: 'join', cid: CID, hp: f.hp.value, phone, name: f.name.value.trim(), area, apt: area === 'cc' ? f.place.value : '', addr: area === 'out' ? f.place.value : '' });
-    if (!r.ok) { f.btn.disabled = false; f.btn.textContent = 'Đăng ký'; f.err.textContent = errText(r); return; }
+    const r = await call({ action: 'join', cid: CID, hp: f.hp.value, phone, name: f.name.value.trim(), area, apt: area === 'cc' ? f.place.value : '', addr: area === 'out' ? f.place.value : '', token: S.member && S.member.phone === phone ? S.member.token : '', code: f.code.value.trim() });
+    if (!r.ok) {
+      f.btn.disabled = false; f.btn.textContent = 'Đăng ký'; f.err.textContent = errText(r);
+      if (r.error === 'NEED_CODE' || r.error === 'BAD_CODE') { f.codeBox.classList.remove('hidden'); f.code.focus(); }
+      return;
+    }
     S.member = { phone, token: r.token }; store.set('samila.member', S.member); S.me = null;
     renderMember(r.granted && r.granted.length ? { ok: true, text: 'Chào mừng bạn! Bạn vừa nhận voucher: ' + r.granted.join(', ') + '. Bấm vào voucher bên dưới để dùng ngay.' } : undefined);
   }
@@ -1137,8 +1167,13 @@ const Demo = {
 /* ================= Khởi động ================= */
 (async function start() {
   if (DEMO) { $('demo').classList.remove('hidden'); S.orders = []; S.member = null; }
-  if (await loadMenu()) {
+  const hadCache = !DEMO && await loadMenu(true);
+  if (hadCache) {
     renderMenu();
+    loadMenu().then(ok => { if (ok && S.view === 'menu') renderMenu(); });      // tải ngầm bản mới, giá luôn được máy chủ tính lại khi đặt
+  }
+  if (hadCache || await loadMenu()) {
+    if (!hadCache) renderMenu();
     const q = new URLSearchParams(location.search);
     if (q.get('don')) { const o = S.orders.find(x => x.code === q.get('don')); if (o) { const r = await call({ action: 'view', code: o.code, token: o.token }); if (r.ok) openOrder(r.order, o.token, false); } }
     setInterval(() => { if (S.view === 'menu') renderStatus(); }, 60000);
