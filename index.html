@@ -404,7 +404,7 @@ async function refreshQuote() {
     if (qTry.key !== key) qTry = { key, n: 0 };
     if (qTry.n < 2) { qTry.n++; setTimeout(() => { if (seq === qSeq) refreshQuote(); }, 1500 * qTry.n); return; }
     S.quote = { key, q: null, failed: true };
-    if (S.view === 'checkout') { if (S.keep) S.keep(); renderCheckout(); }
+    if (S.view === 'checkout') { if (S.keep) S.keep(); softCheckout(); }
     return;
   }
   qTry = { key: '', n: 0 };
@@ -415,7 +415,7 @@ async function refreshQuote() {
     else { S.co.voucher = ''; S.qnote = errText({ error: r.quote.vErr }); }
   }
   if (r.quote.laErr) { S.co.useLa = false; S.qnote = errText({ error: r.quote.laErr }); }
-  if (S.view === 'checkout') { if (S.keep) S.keep(); renderCheckout(); }
+  if (S.view === 'checkout') { if (S.keep) S.keep(); softCheckout(); }
 }
 // Tính thử khi thêm món vào đơn đang có (có cả khuyến mãi, voucher, lá của đơn đó).
 let aSeq = 0;
@@ -598,13 +598,13 @@ function renderBar() {
 $('barBtn').addEventListener('click', () => {
   if (S.adding) { submitAdd(); return; }
   S.quote = null; renderCheckout(); show('checkout');
-  loadMe().then(() => { if (S.view === 'checkout') { if (S.keep) S.keep(); renderCheckout(); } });
+  loadMe().then(() => { if (S.view === 'checkout') { if (S.keep) S.keep(); softCheckout(); } });
 });
 
 /* ================= Thanh toán ================= */
 function perksBlock() {
   const me = S.me, here = S.member && phone10() === S.member.phone && me;
-  const rerun = () => { if (S.keep) S.keep(); renderCheckout(); };
+  const rerun = () => { if (S.keep) S.keep(); softCheckout(); };
   const list = voucherOptions(), out = [];
   if (list.length || (here && me.la > 0)) {
     out.push(h('div', { class: 'card' }, h('h3', {}, 'Ưu đãi của bạn'),
@@ -625,6 +625,35 @@ function perksBlock() {
   }
   return out.length ? h('div', {}, out) : null;
 }
+function coTopKids(T, pend, co) {
+  return [
+    S.qnote ? h('div', { class: 'msg bad', role: 'alert' }, S.qnote) : null,
+    h('div', { class: 'card' },
+      h('ul', { class: 'lines' }, T.lines.map(l => h('li', {}, h('span', {}, (l.gift ? '🎁 ' : '') + l.qty + ' × ' + shortName(l.name)), h('span', {}, l.gift ? 'Tặng' : money(l.price * l.qty))))),
+      h('div', { class: 'row' }, h('span', {}, 'Tạm tính'), h('span', {}, money(T.gross))),
+      T.tierDisc ? h('div', { class: 'row' }, h('span', {}, 'Giảm giá theo số chai'), h('span', { class: 'disc' }, '−' + money(T.tierDisc))) : null,
+      (T.applied || []).filter(a => !a.gift && a.save).map(a => h('div', { class: 'row' }, h('span', {}, a.name), h('span', { class: 'disc' }, '−' + money(a.save)))),
+      T.voucher ? h('div', { class: 'row' }, h('span', {}, 'Voucher ' + T.voucher.name), h('span', { class: 'disc' }, '−' + money(T.voucher.save))) : null,
+      T.la ? h('div', { class: 'row' }, h('span', {}, 'Dùng lá'), h('span', { class: 'disc' }, '−' + money(T.la))) : null,
+      h('div', { class: 'row' }, h('span', {}, 'Phí giao hàng'), h('span', {}, co.area ? (T.ship ? money(T.ship) : 'Miễn phí') : 'Chọn nơi giao')),
+      h('div', { class: 'row total' }, h('span', {}, 'Tổng'), h('span', {}, money(T.total))),
+      pend ? h('p', { class: 'small', style: 'margin:6px 0 0' }, 'Đang tính ưu đãi…') : null),
+    perksBlock()];
+}
+// Cập nhật nhẹ: chỉ vẽ lại phần tóm tắt giá + ưu đãi và nút đặt, KHÔNG đụng vào ô đang gõ (hết giật, giữ con trỏ).
+function softCheckout() {
+  const top = $('co-top'), btn = $('placeBtn');
+  if (!top || !btn || S.view !== 'checkout') { if (S.view === 'checkout') renderCheckout(); return; }
+  const m = S.menu, co = S.co, c = calc(m.products, m.tiers, S.cart);
+  if (!c.count) { renderCheckout(); return; }
+  autoVoucher();
+  const ship = co.area ? m.ship[co.area] || 0 : 0;
+  const T = totalsFor(c, ship), pend = needQuote() && !T.server && !quoteFailed();
+  setKids(top, coTopKids(T, pend, co));
+  btn.disabled = S.busy || pend;
+  btn.textContent = S.busy ? 'Đang gửi đơn…' : 'Đặt đơn · ' + money(T.total);
+  if (needQuote()) refreshQuote();
+}
 function renderCheckout(error) {
   const m = S.menu, root = $('v-checkout'), co = S.co, pf = S.profile;
   const c = calc(m.products, m.tiers, S.cart);
@@ -637,27 +666,17 @@ function renderCheckout(error) {
   const first = earliest(now());
   const T = totalsFor(c, ship), pend = needQuote() && !T.server && !quoteFailed();
   const f = {};
+  let lastPh = phone10();
   const input = (key, attrs) => (f[key] = h(attrs.tag || 'input', Object.assign({ class: 't', id: 'f-' + key }, attrs, { tag: null })));
   setKids(root, 
     h('button', { class: 'back', type: 'button', onclick: () => { renderMenu(); show('menu'); } }, '‹ Sửa món'),
     h('h2', { style: 'margin-top:4px' }, 'Xác nhận đơn'),
     error ? h('div', { class: 'msg bad', role: 'alert' }, error) : null,
-    S.qnote ? h('div', { class: 'msg bad', role: 'alert' }, S.qnote) : null,
-    h('div', { class: 'card' },
-      h('ul', { class: 'lines' }, T.lines.map(l => h('li', {}, h('span', {}, (l.gift ? '🎁 ' : '') + l.qty + ' × ' + shortName(l.name)), h('span', {}, l.gift ? 'Tặng' : money(l.price * l.qty))))),
-      h('div', { class: 'row' }, h('span', {}, 'Tạm tính'), h('span', {}, money(T.gross))),
-      T.tierDisc ? h('div', { class: 'row' }, h('span', {}, 'Giảm giá theo số chai'), h('span', { class: 'disc' }, '−' + money(T.tierDisc))) : null,
-      (T.applied || []).filter(a => !a.gift && a.save).map(a => h('div', { class: 'row' }, h('span', {}, a.name), h('span', { class: 'disc' }, '−' + money(a.save)))),
-      T.voucher ? h('div', { class: 'row' }, h('span', {}, 'Voucher ' + T.voucher.name), h('span', { class: 'disc' }, '−' + money(T.voucher.save))) : null,
-      T.la ? h('div', { class: 'row' }, h('span', {}, 'Dùng lá'), h('span', { class: 'disc' }, '−' + money(T.la))) : null,
-      h('div', { class: 'row' }, h('span', {}, 'Phí giao hàng'), h('span', {}, co.area ? (T.ship ? money(T.ship) : 'Miễn phí') : 'Chọn nơi giao')),
-      h('div', { class: 'row total' }, h('span', {}, 'Tổng'), h('span', {}, money(T.total))),
-      pend ? h('p', { class: 'small', style: 'margin:6px 0 0' }, 'Đang tính ưu đãi…') : null),
-    perksBlock(),
+    h('div', { id: 'co-top' }, coTopKids(T, pend, co)),
     h('div', { class: 'card' },
       h('h3', {}, 'Giao tới'),
       h('label', { class: 'f', for: 'f-phone' }, 'Số điện thoại'),
-      input('phone', { type: 'tel', inputmode: 'tel', autocomplete: 'tel', placeholder: '09xx xxx xxx', value: pf.phone || '', onchange: () => { keep(); renderCheckout(); } }),
+      input('phone', { type: 'tel', inputmode: 'tel', autocomplete: 'tel', placeholder: '09xx xxx xxx', value: pf.phone || '', oninput: () => { keep(); const p = phone10(); if (p !== lastPh) { lastPh = p; softCheckout(); } }, onchange: () => { keep(); lastPh = phone10(); softCheckout(); } }),
       h('label', { class: 'f', for: 'f-name' }, 'Tên ', h('span', { class: 'opt' }, '(không bắt buộc)')),
       input('name', { autocomplete: 'name', maxlength: 50, value: pf.name || '' }),
       h('div', { class: 'f' }, 'Nơi giao'),
@@ -727,7 +746,7 @@ async function place(f, c, ship) {
   S.busy = false;
   if (!r.ok) {
     if (['GONE', 'PRICE_CHANGED', 'BAD_TIME'].includes(r.error)) await loadMenu();
-    if (['PRICE_CHANGED', 'LA_CHANGED', 'VOUCHER_USED', 'VOUCHER_EXPIRED', 'VOUCHER_NONE'].includes(r.error)) { S.quote = null; S.me = null; S.co.voucher = ''; loadMe(true).then(() => { if (S.view === 'checkout') { if (S.keep) S.keep(); renderCheckout(); } }); }
+    if (['PRICE_CHANGED', 'LA_CHANGED', 'VOUCHER_USED', 'VOUCHER_EXPIRED', 'VOUCHER_NONE'].includes(r.error)) { S.quote = null; S.me = null; S.co.voucher = ''; loadMe(true).then(() => { if (S.view === 'checkout') { if (S.keep) S.keep(); softCheckout(); } }); }
     renderCheckout(errText(r));
     return;
   }
