@@ -12,8 +12,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Lora:wght@500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" defer></script>
 <script src="config.js"></script>
+<script>
+/* Gọi thực đơn ngay khi trang bắt đầu tải, không đợi tới cuối trang */
+try { if (window.SAMILA_API && String(window.SAMILA_API).trim()) window.__menuP = fetch(String(window.SAMILA_API).trim(), { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'menu' }) }).then(function (r) { return r.json(); }).catch(function () { return null; }); } catch (e) {}
+</script>
 <style>
 :root{
   --bg:#f3f6ef; --paper:#fff; --ink:#1d2a1b; --ink-2:#4b5a47; --mute:#7a8775; --line:#dde5d5;
@@ -488,7 +494,9 @@ async function loadMenu(cached) {
       if (c && c.r && c.r.products && Date.now() - c.t < 86400000) { S.menu = c.r; S.skew = c.r.now - c.t; applyMenu(c.r); return true; }
     } catch (e) {}
   }
-  const r = await call({ action: 'menu' });
+  let r = null;
+  if (window.__menuP) { const p = window.__menuP; window.__menuP = null; r = await p; }   // bản đã gọi sẵn từ đầu trang
+  if (!r || !r.ok) r = await call({ action: 'menu' });
   if (r.ok) { try { localStorage.setItem('sml_menu', JSON.stringify({ t: Date.now(), r: r })); } catch (e) {} }
   if (!r.ok) { $('status').className = 'status stop'; $('status').textContent = errText(r) + ' Kéo xuống để tải lại trang.'; return false; }
   S.menu = r; S.skew = r.now - Date.now();
