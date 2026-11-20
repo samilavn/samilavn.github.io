@@ -617,10 +617,10 @@ function perksBlock() {
           ? h('div', { class: 'choices' }, h('button', { type: 'button', 'aria-pressed': String(S.co.useLa), onclick: () => { S.co.useLa = !S.co.useLa; rerun(); } }, 'Dùng lá để trừ tiền hàng', h('small', {}, laMsg(me.la, me.laStep) + ' Lá trừ theo mốc ' + ceilLa(me.laStep) + ', phần còn lại bạn trả thêm tiền. Dùng được cùng voucher.')))
           : h('p', { class: 'small', style: 'margin:4px 0 0' }, laMsg(me.la, me.laStep))] : null));
   }
-  if (!S.member && S.menu.la && S.menu.la.rate > 0) {
+  if (!S.member && S.menu.tich && S.menu.tich.goal > 0) {
     const vp = (S.menu.promos || []).filter(p => String(p.kind).toLowerCase() === 'voucher' && p.aud !== 'all');
-    out.push(h('div', { class: 'card zalo' }, h('h3', {}, vp.length ? 'Đăng ký thành viên để nhận voucher' : 'Thành viên được hoàn ' + S.menu.la.rate + '% bằng lá'),
-      h('p', { class: 'small', style: 'margin:4px 0 10px' }, (vp.length ? vp.map(p => p.name + (p.text ? ': ' + p.text : '')).join('. ') + '. ' : '') + 'Thành viên được hoàn ' + S.menu.la.rate + '% bằng lá mỗi đơn.' + (vp.length ? ' Đăng ký xong voucher có sẵn để chọn ngay.' : '')),
+    out.push(h('div', { class: 'card zalo' }, h('h3', {}, vp.length ? 'Đăng ký thành viên để nhận voucher' : 'Tích ' + S.menu.tich.goal + ' chai, tặng 1 chai 330ml'),
+      h('p', { class: 'small', style: 'margin:4px 0 10px' }, (vp.length ? vp.map(p => p.name + (p.text ? ': ' + p.text : '')).join('. ') + '. ' : '') + 'Thành viên mua đủ ' + S.menu.tich.goal + ' chai bất kỳ được tặng 1 chai 330ml.' + (vp.length ? ' Đăng ký xong voucher có sẵn để chọn ngay.' : '')),
       h('button', { class: 'btn ghost', type: 'button', onclick: () => { if (S.keep) S.keep(); renderMember(); show('member'); } }, 'Đăng ký thành viên')));
   }
   return out.length ? h('div', {}, out) : null;
@@ -1021,8 +1021,10 @@ function memberCard(root, r) {
 function perksCard(r) {
   const vs = r.vouchers || [];
   return h('div', { class: 'card' },
-    h('div', { class: 'perk' }, h('div', {}, h('div', { class: 'small' }, 'Lá của bạn'), h('b', {}, ceilLa(r.la) + ' lá')), h('div', { class: 'small', style: 'text-align:right' }, 'Hoàn ' + (r.laRate || 0) + '% mỗi đơn')),
-    h('p', { class: 'small', style: 'margin:8px 0 0' }, laMsg(r.la, r.laStep) + ' Lá trừ theo mốc ' + ceilLa(r.laStep) + ' (1 lá = 1đ), phần còn lại bạn trả thêm tiền. Lá cộng vào sau khi đơn đã nhận đủ tiền, tính trên số tiền hàng bạn thật sự trả.'),
+    r.tich ? [h('div', { class: 'perk' }, h('div', {}, h('div', { class: 'small' }, 'Tích chai'), h('b', {}, r.tich.inCycle + ' / ' + r.tich.goal + ' chai')), h('div', { class: 'small', style: 'text-align:right' }, 'Còn ' + r.tich.left + ' chai nữa', h('br'), 'tặng 1 chai 330ml')),
+      h('p', { class: 'small', style: 'margin:8px 0 0' }, 'Mua ' + r.tich.goal + ' chai bất kỳ được tặng 1 chai 330ml. Chai được tính sau khi đơn đã nhận đủ tiền, chai tặng không tính.')] : null,
+    (r.la > 0 || r.laRate > 0) ? [h('div', { class: 'perk', style: 'margin-top:12px' }, h('div', {}, h('div', { class: 'small' }, 'Lá của bạn'), h('b', {}, ceilLa(r.la) + ' lá')), h('div', { class: 'small', style: 'text-align:right' }, r.laRate > 0 ? 'Hoàn ' + r.laRate + '% mỗi đơn' : '')),
+      h('p', { class: 'small', style: 'margin:8px 0 0' }, laMsg(r.la, r.laStep) + ' Lá trừ theo mốc ' + ceilLa(r.laStep) + ' (1 lá = 1đ), phần còn lại bạn trả thêm tiền.')] : null,
     vs.length ? [h('h3', { style: 'margin-top:14px' }, 'Voucher của bạn'),
       h('div', { class: 'vlist' }, vs.map(v => h('button', { type: 'button', class: v.lock ? 'used' : '', disabled: !!v.lock, onclick: () => useVoucher(v) },
         h('span', {}, v.name, h('small', {}, v.text + (v.exp ? ' · HSD ' + v.exp : '') + (v.lock ? ' · đang dùng cho đơn ' + v.lock : ''))), v.lock ? '' : 'Dùng ngay')))] : null);
@@ -1114,7 +1116,7 @@ const Demo = {
         kinds: ['Thiếu hàng', 'Sai món', 'Chai hỏng / rò', 'Vị lạ, nghi hỏng', 'Giao trễ', 'Khác'], wants: ['Đổi món', 'Hoàn tiền', 'Chỉ báo để Tiệm biết'], reportDays: 3 },
       promos: [{ id: 'KM01', name: 'Mua từ 1 chai tặng 1 chai 330ml', aud: 'all', kind: 'gift', minQty: 1, minMoney: 0, text: 'Tặng 1 Sâm mía lau 330ml khi mua từ 1 chai (đến 30/11)' },
         { id: 'KM03', name: 'Thành viên giảm 10%', aud: 'member', kind: 'disc', minQty: 3, minMoney: 0, text: 'Giảm 10% khi mua từ 3 chai' }],
-      la: { rate: 5, step: 5000 }, openVouchers: [{ id: 'KM09', name: 'Voucher mở 19k', text: 'Giảm 19.000đ', exp: '30/11', lock: '', open: true }],
+      la: { rate: 0, step: 5000 }, tich: { goal: 8, gift: 'Tặng 1 chai 330ml' }, openVouchers: [{ id: 'KM09', name: 'Voucher mở 19k', text: 'Giảm 19.000đ', exp: '30/11', lock: '', open: true }],
       rating: { count: 23, avg: 4.8, recent: [{ stars: 5, note: 'Uống mát, vị thanh, giao nhanh' }, { stars: 5, note: 'Sâm mía lau rất thơm' }] } };
   },
   // Xem thử: thêm ?xem=giao vào địa chỉ để đơn đặt thử hiện sẵn trạng thái Đã giao (thử đánh giá, báo lỗi).
@@ -1178,7 +1180,7 @@ const Demo = {
       return { ok: true, order: Object.assign({}, o, { fb: this.fbOf(o) }) };
     }
     if (b.action === 'join') { db.member = { phone: b.phone, name: b.name, area: b.area, place: b.area === 'cc' ? b.apt.toUpperCase() : b.addr, status: 'Thành viên' }; if (!db.vouchers.length) db.vouchers.push({ id: 'KM02', name: 'Chào mừng', text: 'Giảm 5.000đ', exp: '16/12', lock: '' }); return { ok: true, token: 'demo', granted: ['Chào mừng'] }; }
-    if (b.action === 'me') return db.member ? { ok: true, member: db.member, orders: [], la: db.la, laStep: 5000, laRate: 5, vouchers: JSON.parse(JSON.stringify(db.vouchers)) } : { ok: false, error: 'NOT_FOUND' };
+    if (b.action === 'me') return db.member ? { ok: true, member: db.member, orders: [], la: db.la, laStep: 5000, laRate: 0, tich: { total: 5, goal: 8, inCycle: 5, left: 3, gifts: 0 }, vouchers: JSON.parse(JSON.stringify(db.vouchers)) } : { ok: false, error: 'NOT_FOUND' };
     return { ok: false, error: 'SERVER' };
   }
 };
