@@ -376,6 +376,7 @@ const ceilLa = n => Number(n || 0).toLocaleString('vi-VN');
 function laMsg(la, step) {
   step = step || 5000; la = Number(la) || 0;
   const use = Math.floor(la / step) * step, next = use + step, need = next - la;
+  if (!(S.menu && S.menu.la && S.menu.la.rate > 0)) return 'Bạn đang có ' + ceilLa(la) + ' lá' + (use > 0 ? ', dùng ngay để được giảm ' + ceilLa(use) + 'đ.' : ', chưa đủ một mốc ' + ceilLa(step) + ' lá để dùng.') + ' Lá không tích thêm nữa.';
   return 'Bạn đang có ' + ceilLa(la) + ' lá, ' + (use > 0 ? 'sử dụng ngay hoặc ' : '') + 'tích thêm ' + ceilLa(need) + ' lá để được giảm ' + ceilLa(next) + 'đ.';
 }
 async function loadMe(force) {
