@@ -200,7 +200,7 @@ const CID = store.get('samila.cid', null) || (() => { const id = (crypto.randomU
 const ERR = {
   NEED_MEMBER: 'Bạn cần đăng ký thành viên (và dùng đúng máy đã đăng ký) mới dùng được voucher và lá.',
   VOUCHER_NONE: 'Không tìm thấy voucher này trong tài khoản của bạn.', VOUCHER_USED: 'Voucher này đã dùng hoặc đang dùng cho một đơn khác.', NEED_PHONE: 'Nhập số điện thoại để dùng voucher.',
-  VOUCHER_EXPIRED: 'Voucher đã hết hạn.', VOUCHER_MIN: 'Đơn chưa đủ điều kiện để dùng voucher này.',
+  VOUCHER_EXPIRED: 'Voucher đã hết hạn.', VOUCHER_MIN: 'Đơn chưa đủ điều kiện để dùng voucher này. Quà tích chai cần có ít nhất 1 chai 330ml trong giỏ.',
   LA_MIN: 'Đơn hoặc số lá của bạn chưa đủ một mốc để dùng lá.', LA_CHANGED: 'Số lá của bạn vừa thay đổi. Bạn kiểm tra lại giúp Tiệm.',
   BAD_PHONE: 'Số điện thoại chưa đúng (10 số, bắt đầu bằng 0).',
   NEED_APT: 'Bạn nhập số căn hộ giúp Tiệm.', NEED_ADDR: 'Bạn nhập địa chỉ giao hàng giúp Tiệm.', NEED_NAME: 'Bạn nhập tên giúp Tiệm.',
@@ -567,7 +567,8 @@ function renderMenu() {
         h('thead', {}, h('tr', {}, h('th', {}, 'Số chai'), h('th', {}, '330ml'), h('th', {}, '500ml'))),
         h('tbody', {}, ...[{ qty: 1, t330: base('t330'), t500: base('t500') }].concat(tiers).map(t => h('tr', {},
           h('td', {}, t.qty === tiers[tiers.length - 1].qty ? t.qty + ' trở lên' : t.qty),
-          h('td', {}, t.t330 ? money(t.t330 / t.qty) : '–'), h('td', {}, t.t500 ? money(t.t500 / t.qty) : '–')))))));
+          h('td', {}, t.t330 ? money(t.t330 / t.qty) : '–'), h('td', {}, t.t500 ? money(t.t500 / t.qty) : '–'))))),
+      m.tich && m.tich.goal ? h('p', { class: 'small', style: 'margin:10px 0 0' }, h('b', {}, 'Thành viên tích đủ ' + m.tich.goal + ' chai bất kỳ, tặng 1 chai 330ml'), '. Chọn vị tuỳ ý khi dùng quà.') : null));
   }
   function base(k) { const p = m.products.find(x => sizeKey(x.name) === k); return p ? p.price : null; }
   renderBar();
@@ -620,7 +621,7 @@ function perksBlock() {
   if (!S.member && S.menu.tich && S.menu.tich.goal > 0) {
     const vp = (S.menu.promos || []).filter(p => String(p.kind).toLowerCase() === 'voucher' && p.aud !== 'all');
     out.push(h('div', { class: 'card zalo' }, h('h3', {}, vp.length ? 'Đăng ký thành viên để nhận voucher' : 'Tích ' + S.menu.tich.goal + ' chai, tặng 1 chai 330ml'),
-      h('p', { class: 'small', style: 'margin:4px 0 10px' }, (vp.length ? vp.map(p => p.name + (p.text ? ': ' + p.text : '')).join('. ') + '. ' : '') + 'Thành viên mua đủ ' + S.menu.tich.goal + ' chai bất kỳ được tặng 1 chai 330ml.' + (vp.length ? ' Đăng ký xong voucher có sẵn để chọn ngay.' : '')),
+      h('p', { class: 'small', style: 'margin:4px 0 10px' }, (vp.length ? vp.map(p => p.name + (p.text ? ': ' + p.text : '')).join('. ') + '. ' : '') + 'Thành viên tích đủ ' + S.menu.tich.goal + ' chai bất kỳ, tặng 1 chai 330ml (chọn vị tuỳ ý).' + (vp.length ? ' Đăng ký xong voucher có sẵn để chọn ngay.' : '')),
       h('button', { class: 'btn ghost', type: 'button', onclick: () => { if (S.keep) S.keep(); renderMember(); show('member'); } }, 'Đăng ký thành viên')));
   }
   return out.length ? h('div', {}, out) : null;
@@ -1022,7 +1023,7 @@ function perksCard(r) {
   const vs = r.vouchers || [];
   return h('div', { class: 'card' },
     r.tich ? [h('div', { class: 'perk' }, h('div', {}, h('div', { class: 'small' }, 'Tích chai'), h('b', {}, r.tich.inCycle + ' / ' + r.tich.goal + ' chai')), h('div', { class: 'small', style: 'text-align:right' }, 'Còn ' + r.tich.left + ' chai nữa', h('br'), 'tặng 1 chai 330ml')),
-      h('p', { class: 'small', style: 'margin:8px 0 0' }, 'Mua ' + r.tich.goal + ' chai bất kỳ được tặng 1 chai 330ml. Chai được tính sau khi đơn đã nhận đủ tiền, chai tặng không tính.')] : null,
+      h('p', { class: 'small', style: 'margin:8px 0 0' }, 'Tích đủ ' + r.tich.goal + ' chai bất kỳ, tặng 1 chai 330ml. Bỏ 1 chai 330ml vị bạn thích vào giỏ rồi chọn quà, chai đó miễn phí. Chai được tính sau khi đơn đã nhận đủ tiền, chai tặng không tính.')] : null,
     (r.la > 0 || r.laRate > 0) ? [h('div', { class: 'perk', style: 'margin-top:12px' }, h('div', {}, h('div', { class: 'small' }, 'Lá của bạn'), h('b', {}, ceilLa(r.la) + ' lá')), h('div', { class: 'small', style: 'text-align:right' }, r.laRate > 0 ? 'Hoàn ' + r.laRate + '% mỗi đơn' : '')),
       h('p', { class: 'small', style: 'margin:8px 0 0' }, laMsg(r.la, r.laStep) + ' Lá trừ theo mốc ' + ceilLa(r.laStep) + ' (1 lá = 1đ), phần còn lại bạn trả thêm tiền.')] : null,
     vs.length ? [h('h3', { style: 'margin-top:14px' }, 'Voucher của bạn'),
