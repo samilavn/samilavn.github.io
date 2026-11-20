@@ -65,10 +65,13 @@ nav.tabs button[aria-selected=true]{background:var(--paper);color:var(--leaf);bo
 .tiers th,.tiers td{padding:7px 4px;text-align:right;border-top:1px solid var(--line)}
 .tiers th:first-child,.tiers td:first-child{text-align:left}
 .tiers thead th{border-top:0;color:var(--mute);font-weight:500;font-size:13px}
-.tiers tr.lb td{text-align:left;color:var(--mute);font-size:13px;padding:8px 4px 0}
-.tiers tr.pr td{border-top:0;padding-top:2px;font-weight:600}
+.tiers{table-layout:fixed}
+.tiers th,.tiers td{text-align:center!important}
+.tiers thead th{font-weight:700;color:var(--ink-2);font-size:14px;padding-bottom:8px}
+.tiers tr.lb td{color:var(--mute);font-size:13px;padding:10px 4px 0}
+.tiers tr.pr td{border-top:0;padding:2px 4px 10px;font-weight:700;font-size:17px}
 .tiers tr.pr td small{font-weight:400;color:var(--mute);font-size:13px;margin-left:1px}
-.tiers tr.pr td:first-child{text-align:left}
+.tiers thead th:first-child,.tiers tr.pr td:first-child{border-right:1px solid var(--line)}
 .small{font-size:13px;color:var(--mute)}
 .bar{position:fixed;left:0;right:0;bottom:0;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:var(--leaf);color:#fff;box-shadow:0 -6px 20px rgba(20,35,27,.18);z-index:5}
 .bar .in{max-width:560px;margin:0 auto;display:flex;align-items:center;gap:12px}
@@ -579,7 +582,7 @@ function renderMenu() {
   const tiers = m.tiers.filter(t => t.qty >= 2).sort((a, b) => a.qty - b.qty);
   if (tiers.length) {
     root.append(h('div', { class: 'card' },
-      h('h3', {}, 'Mua càng nhiều, giá càng mềm'),
+      h('h3', {}, 'Mua càng nhiều, giá tốt hơn'),
       h('table', { class: 'tiers' },
         h('thead', {}, h('tr', {}, h('th', {}, '330ml'), h('th', {}, '500ml'))),
         h('tbody', {}, ...[{ qty: 1, t330: base('t330'), t500: base('t500') }].concat(tiers).flatMap(t => [
