@@ -570,13 +570,12 @@ function renderMenu() {
   if (tiers.length) {
     root.append(h('div', { class: 'card' },
       h('h3', {}, 'Mua càng nhiều, giá càng mềm'),
-      h('p', { class: 'small', style: 'margin:4px 0 0' }, 'Tính chung mọi vị cùng cỡ chai trong một đơn. Giá mỗi chai:'),
+      h('p', { class: 'small', style: 'margin:4px 0 0' }, 'Tặng ngay 1 chai khi tích luỹ đủ ' + ((m.tich && m.tich.goal) || 8) + ' chai'),
       h('table', { class: 'tiers' },
-        h('thead', {}, h('tr', {}, h('th', {}, 'Số chai'), h('th', {}, '330ml'), h('th', {}, '500ml'))),
+        h('thead', {}, h('tr', {}, h('th', {}, '330ml'), h('th', {}, '500ml'), h('th', {}, 'Số chai'))),
         h('tbody', {}, ...[{ qty: 1, t330: base('t330'), t500: base('t500') }].concat(tiers).map(t => h('tr', {},
-          h('td', {}, t.qty === tiers[tiers.length - 1].qty ? t.qty + ' trở lên' : t.qty),
-          h('td', {}, t.t330 ? money(t.t330 / t.qty) : '–'), h('td', {}, t.t500 ? money(t.t500 / t.qty) : '–'))))),
-      m.tich && m.tich.goal ? h('p', { class: 'small', style: 'margin:10px 0 0' }, h('b', {}, 'Thành viên tích đủ ' + m.tich.goal + ' chai bất kỳ, tặng 1 chai 330ml'), '. Chọn vị tuỳ ý khi dùng quà.') : null));
+          h('td', {}, t.t330 ? money(t.t330 / t.qty) : '–'), h('td', {}, t.t500 ? money(t.t500 / t.qty) : '–'),
+          h('td', {}, '/' + (t.qty === tiers[tiers.length - 1].qty ? t.qty + ' chai trở lên' : t.qty + ' chai'))))))));
   }
   function base(k) { const p = m.products.find(x => sizeKey(x.name) === k); return p ? p.price : null; }
   renderBar();
