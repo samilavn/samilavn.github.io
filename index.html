@@ -575,14 +575,12 @@ function renderMenu() {
   if (tiers.length) {
     root.append(h('div', { class: 'card' },
       h('h3', {}, 'Mua càng nhiều, giá càng mềm'),
-      h('p', { class: 'small', style: 'margin:4px 0 0' }, 'Tặng ngay 1 chai khi tích luỹ đủ ' + ((m.tich && m.tich.goal) || 8) + ' chai'),
       h('table', { class: 'tiers' },
         h('thead', {}, h('tr', {}, h('th', {}, '330ml'), h('th', {}, '500ml'))),
         h('tbody', {}, ...[{ qty: 1, t330: base('t330'), t500: base('t500') }].concat(tiers).flatMap(t => [
-          h('tr', { class: 'lb' }, h('td', { colspan: 2 }, t.qty === tiers[tiers.length - 1].qty ? 'Mua từ ' + t.qty + ' chai trở lên' : 'Mua ' + t.qty + ' chai')),
+          h('tr', { class: 'lb' }, h('td', { colspan: 2 }, t.qty === tiers[tiers.length - 1].qty ? 'Từ ' + t.qty + ' chai trở lên (giá mỗi chai)' : 'Mua ' + t.qty + ' chai')),
           h('tr', { class: 'pr' },
-            h('td', {}, t.t330 ? [money(t.t330 / t.qty), h('small', {}, '/chai')] : '–'),
-            h('td', {}, t.t500 ? [money(t.t500 / t.qty), h('small', {}, '/chai')] : '–'))])))));
+            ...[t.t330, t.t500].map(v => h('td', {}, v ? (t.qty === tiers[tiers.length - 1].qty ? [money(v / t.qty), h('small', {}, '/chai')] : money(v)) : '–')))])))));
   }
   function base(k) { const p = m.products.find(x => sizeKey(x.name) === k); return p ? p.price : null; }
   renderBar();
