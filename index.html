@@ -600,9 +600,9 @@ function renderMenu() {
       h('table', { class: 'tiers' },
         h('thead', {}, h('tr', {}, h('th', {}, '330ml'), h('th', {}, '500ml'))),
         h('tbody', {}, ...[{ qty: 1, t330: base('t330'), t500: base('t500') }].concat(tiers).flatMap(t => [
-          h('tr', { class: 'lb' }, h('td', { colspan: 2 }, t.qty === tiers[tiers.length - 1].qty ? 'Từ chai thứ ' + t.qty + ' trở đi (mỗi chai thêm)' : 'Mua ' + t.qty + ' chai')),
+          h('tr', { class: 'lb' }, h('td', { colspan: 2 }, t.qty === tiers[tiers.length - 1].qty ? 'Từ chai thứ ' + t.qty : t.qty + ' chai')),
           h('tr', { class: 'pr' },
-            ...['t330', 't500'].map(k2 => { const v = t[k2]; return h('td', {}, v ? (t.qty === tiers[tiers.length - 1].qty ? [money(tailPrice(t, k2)), h('small', {}, '/chai')] : money(v)) : '–'); }))])))));
+            ...['t330', 't500'].map(k2 => { const v = t[k2]; return h('td', {}, v ? (t.qty === tiers[tiers.length - 1].qty ? ['+' + money(tailPrice(t, k2)), h('small', {}, '/chai')] : money(v)) : '–'); }))])))));
   }
   function base(k) { const p = m.products.find(x => sizeKey(x.name) === k); return p ? p.price : null; }
   function tailPrice(t, k) { const pv = m.tiers.find(x => x.qty === t.qty - 1 && typeof x[k] === 'number'); return pv ? t[k] - pv[k] : t[k] / t.qty; }
@@ -1145,7 +1145,7 @@ const Demo = {
     return { ok: true, now: Date.now(), shop: 'Sâmila',
       products: [{ name: 'Sâm hoa cúc / chai / 330ml', price: 19000 }, { name: 'Sâm hoa cúc / chai / 500ml', price: 28000 },
         { name: 'Sâm mía lau bịch / chai / 330ml', price: 19000 }, { name: 'Sâm mía lau bịch / chai / 500ml', price: 28000 }],
-      tiers: [{ qty: 1, t330: 19000, t500: 28000 }, { qty: 2, t330: 36000, t500: 52000 }, { qty: 3, t330: 52000, t500: 75000 }, { qty: 4, t330: 69000, t500: 99000 }],
+      tiers: [{ qty: 1, t330: 19000, t500: 28000 }, { qty: 2, t330: 36000, t500: 52000 }, { qty: 3, t330: 52000, t500: 77000 }, { qty: 4, t330: 69000, t500: 102000 }],
       shifts: [[600, 840], [1080, 1260]], prep: 30, cancelMin: 5, daysAhead: 7, building: 'Chung cư Mỹ Phúc',
       ship: { cc: 0, out: 0 }, paused: false, notice: '', zalo: 'https://zalo.me/3712879380799354133',
       fb: { good: ['Vị ngon', 'Đúng giờ', 'Đóng gói đẹp', 'Giá hợp lý', 'Giao thân thiện'], bad: ['Vị chưa hợp', 'Giao trễ', 'Đóng gói chưa tốt', 'Giá hơi cao', 'Món không đúng ý'],
