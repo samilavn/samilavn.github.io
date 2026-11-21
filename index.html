@@ -248,6 +248,21 @@ async function call(body) {
 
 /* ================= Tính tiền (giống script) ================= */
 const sizeKey = n => (/330ml/.test(n) ? 't330' : /500ml/.test(n) ? 't500' : null);
+// Bậc cuối: từ chai thứ <qty> trở đi, mỗi chai thêm = (tổng bậc cuối − tổng bậc liền trước). Các bậc trước: tổng ÷ số chai.
+function tierUnit(tiers, k, n) {
+  let t = null, last = null;
+  for (const x of tiers) {
+    if (typeof x[k] !== 'number') continue;
+    if (!last || x.qty > last.qty) last = x;
+    if (x.qty <= n && (!t || x.qty > t.qty)) t = x;
+  }
+  if (!t) return null;
+  if (t === last && n > t.qty) {
+    const p = tiers.find(x => x.qty === t.qty - 1 && typeof x[k] === 'number');
+    if (p) return (t[k] + (n - t.qty) * (t[k] - p[k])) / n;
+  }
+  return t[k] / t.qty;
+}
 function calc(products, tiers, cart) {
   const sold = {}, lines = [];
   for (const p of products) { const k = sizeKey(p.name); if (k && cart[p.name]) sold[k] = (sold[k] || 0) + cart[p.name]; }
@@ -258,9 +273,8 @@ function calc(products, tiers, cart) {
     const k = sizeKey(p.name);
     let unit = p.price;
     if (k) {
-      let tier = null;
-      for (const t of tiers) if (t.qty <= sold[k] && (!tier || t.qty > tier.qty)) tier = t;
-      if (tier && typeof tier[k] === 'number') unit = tier[k] / tier.qty;
+      const u = tierUnit(tiers, k, sold[k]);
+      if (u !== null) unit = u;
     }
     const d = Math.max(0, (p.price - unit) * q);
     lines.push({ name: p.name, qty: q, price: p.price, discount: d, amount: p.price * q - d });
@@ -586,11 +600,12 @@ function renderMenu() {
       h('table', { class: 'tiers' },
         h('thead', {}, h('tr', {}, h('th', {}, '330ml'), h('th', {}, '500ml'))),
         h('tbody', {}, ...[{ qty: 1, t330: base('t330'), t500: base('t500') }].concat(tiers).flatMap(t => [
-          h('tr', { class: 'lb' }, h('td', { colspan: 2 }, t.qty === tiers[tiers.length - 1].qty ? 'Từ ' + t.qty + ' chai trở lên (giá mỗi chai)' : 'Mua ' + t.qty + ' chai')),
+          h('tr', { class: 'lb' }, h('td', { colspan: 2 }, t.qty === tiers[tiers.length - 1].qty ? 'Từ chai thứ ' + t.qty + ' trở đi (mỗi chai thêm)' : 'Mua ' + t.qty + ' chai')),
           h('tr', { class: 'pr' },
-            ...[t.t330, t.t500].map(v => h('td', {}, v ? (t.qty === tiers[tiers.length - 1].qty ? [money(v / t.qty), h('small', {}, '/chai')] : money(v)) : '–')))])))));
+            ...['t330', 't500'].map(k2 => { const v = t[k2]; return h('td', {}, v ? (t.qty === tiers[tiers.length - 1].qty ? [money(tailPrice(t, k2)), h('small', {}, '/chai')] : money(v)) : '–'); }))])))));
   }
   function base(k) { const p = m.products.find(x => sizeKey(x.name) === k); return p ? p.price : null; }
+  function tailPrice(t, k) { const pv = m.tiers.find(x => x.qty === t.qty - 1 && typeof x[k] === 'number'); return pv ? t[k] - pv[k] : t[k] / t.qty; }
   renderBar();
 }
 function setQty(name, q) {
@@ -1130,7 +1145,7 @@ const Demo = {
     return { ok: true, now: Date.now(), shop: 'Sâmila',
       products: [{ name: 'Sâm hoa cúc / chai / 330ml', price: 19000 }, { name: 'Sâm hoa cúc / chai / 500ml', price: 28000 },
         { name: 'Sâm mía lau bịch / chai / 330ml', price: 19000 }, { name: 'Sâm mía lau bịch / chai / 500ml', price: 28000 }],
-      tiers: [{ qty: 1, t330: 19000, t500: 28000 }, { qty: 2, t330: 36000, t500: 52000 }, { qty: 3, t330: 52000, t500: 75000 }, { qty: 4, t330: 68000, t500: 98000 }, { qty: 5, t330: 82000, t500: 119000 }],
+      tiers: [{ qty: 1, t330: 19000, t500: 28000 }, { qty: 2, t330: 36000, t500: 52000 }, { qty: 3, t330: 52000, t500: 75000 }, { qty: 4, t330: 69000, t500: 99000 }],
       shifts: [[600, 840], [1080, 1260]], prep: 30, cancelMin: 5, daysAhead: 7, building: 'Chung cư Mỹ Phúc',
       ship: { cc: 0, out: 0 }, paused: false, notice: '', zalo: 'https://zalo.me/3712879380799354133',
       fb: { good: ['Vị ngon', 'Đúng giờ', 'Đóng gói đẹp', 'Giá hợp lý', 'Giao thân thiện'], bad: ['Vị chưa hợp', 'Giao trễ', 'Đóng gói chưa tốt', 'Giá hơi cao', 'Món không đúng ý'],
